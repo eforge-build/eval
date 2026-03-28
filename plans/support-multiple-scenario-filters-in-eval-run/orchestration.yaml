@@ -1,0 +1,28 @@
+name: support-multiple-scenario-filters-in-eval-run
+description: Enable eval_run to execute all requested scenario IDs by supporting
+  multiple positional filter arguments in both run.sh and the MCP server
+created: 2026-03-28
+compiled: 2026-03-28
+mode: mechanical-multi-file-fix
+base_branch: main
+validate:
+  - pnpm type-check
+plans:
+  - id: plan-01-multiple-scenario-filters
+    name: Support Multiple Scenario Filters
+    depends_on: []
+    branch: support-multiple-scenario-filters-in-eval-run/multiple-scenario-filters
+    build:
+      - implement
+    review:
+      strategy: auto
+      perspectives:
+        - code
+      maxRounds: 1
+      evaluatorStrictness: standard
+profile:
+  extends: errand
+  description: Small, self-contained changes. Single file or a few lines. Low
+    risk, no architectural impact.
+  compile:
+    - prd-passthrough
