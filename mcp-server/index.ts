@@ -71,10 +71,8 @@ server.tool(
     if (compare) {
       args.push('--compare', compare);
     }
-    // If scenarios are specified, only the first one is used as a filter
-    // (run.sh accepts a single scenario ID as a positional arg)
     if (scenarios && scenarios.length > 0) {
-      args.push(scenarios[0]);
+      args.push(...scenarios);
     }
 
     const child = spawn(RUN_SCRIPT, args, {

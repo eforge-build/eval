@@ -268,7 +268,7 @@ print_observations() {
 
 # Main
 main() {
-  local filter=""
+  local filters=()
   local repeat_count=1
   local compare_timestamp=""
   ENV_FILE=""      # exported for run-scenario.sh
@@ -289,7 +289,7 @@ main() {
         if [[ $# -lt 2 ]]; then echo "Error: --compare requires a <timestamp> argument"; exit 1; fi
         compare_timestamp="$2"; shift 2 ;;
       --help|-h)
-        echo "Usage: run.sh [OPTIONS] [SCENARIO_ID]"
+        echo "Usage: run.sh [OPTIONS] [SCENARIO_ID...]"
         echo ""
         echo "Options:"
         echo "  --dry-run              Set up workspaces but skip eforge and validation"
@@ -303,7 +303,7 @@ main() {
         echo "  EFORGE_BIN      Path to eforge binary (default: eforge on PATH)"
         exit 0
         ;;
-      *)            filter="$1"; shift ;;
+      *)            filters+=("$1"); shift ;;
     esac
   done
 
@@ -381,8 +381,17 @@ main() {
 
   while IFS=$'\t' read -r id fixture prd validate description expect_json; do
     # Filter if specified
-    if [[ -n "$filter" && "$id" != "$filter" ]]; then
-      continue
+    if [[ ${#filters[@]} -gt 0 ]]; then
+      local match=false
+      for f in "${filters[@]}"; do
+        if [[ "$id" == "$f" ]]; then
+          match=true
+          break
+        fi
+      done
+      if [[ "$match" == "false" ]]; then
+        continue
+      fi
     fi
 
     total=$((total + 1))
@@ -503,8 +512,8 @@ main() {
   done < <(parse_scenarios)
 
   if [[ $total -eq 0 ]]; then
-    if [[ -n "$filter" ]]; then
-      echo "Error: No scenario found with id '$filter'"
+    if [[ ${#filters[@]} -gt 0 ]]; then
+      echo "Error: No scenarios found matching: ${filters[*]}"
       exit 1
     else
       echo "Error: No scenarios defined in $SCENARIOS_FILE"
