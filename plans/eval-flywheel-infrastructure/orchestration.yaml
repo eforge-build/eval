@@ -1,0 +1,74 @@
+name: eval-flywheel-infrastructure
+description: Add analysis layer, MCP server, and harness enhancements to the
+  eval repo for queryable results and programmatic pattern detection
+created: 2026-03-28
+compiled: 2026-03-28
+mode: eval-infrastructure
+base_branch: main
+validate:
+  - pnpm type-check
+plans:
+  - id: plan-01-richer-metrics
+    name: Richer Metric Extraction
+    depends_on: []
+    branch: eval-flywheel-infrastructure/richer-metrics
+    build:
+      - implement
+      - review-cycle
+    review:
+      strategy: auto
+      perspectives:
+        - code
+      maxRounds: 1
+      evaluatorStrictness: standard
+  - id: plan-02-analysis-history
+    name: Analysis and History Modules
+    depends_on:
+      - plan-01-richer-metrics
+    branch: eval-flywheel-infrastructure/analysis-history
+    build:
+      - implement
+      - review-cycle
+    review:
+      strategy: auto
+      perspectives:
+        - code
+      maxRounds: 1
+      evaluatorStrictness: standard
+  - id: plan-03-harness-enhancements
+    name: Harness Enhancements
+    depends_on:
+      - plan-02-analysis-history
+    branch: eval-flywheel-infrastructure/harness-enhancements
+    build:
+      - implement
+      - review-cycle
+    review:
+      strategy: auto
+      perspectives:
+        - code
+      maxRounds: 1
+      evaluatorStrictness: standard
+  - id: plan-04-mcp-server
+    name: MCP Server
+    depends_on:
+      - plan-03-harness-enhancements
+    branch: eval-flywheel-infrastructure/mcp-server
+    build:
+      - implement
+      - review-cycle
+    review:
+      strategy: auto
+      perspectives:
+        - code
+      maxRounds: 1
+      evaluatorStrictness: standard
+profile:
+  extends: excursion
+  description: "Multi-file feature work or refactors. Use when changes touch many
+    files but are tightly coupled - e.g., type signature changes that cascade to
+    consumers, interface refactors, rename-and-update-all-callers. The key test:
+    can every piece pass type-check independently? If not, use excursion."
+  compile:
+    - planner
+    - plan-review-cycle
