@@ -40,7 +40,7 @@ pnpm install
 4. Validation commands run against the workspace (type-check, tests, etc.)
 5. Results are aggregated into `results/<timestamp>/summary.json`
 
-No daemon or monitor server is started - eforge runs in foreground mode with event recording only.
+A monitor server starts from the eval repo root, providing a stable web UI for observing runs. Individual eforge runs use `--no-monitor` (foreground mode, writing directly to the shared DB).
 
 ## Adding scenarios
 
