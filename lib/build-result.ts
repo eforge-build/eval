@@ -53,6 +53,19 @@ interface ModelAggregate {
   costUsd: number;
 }
 
+interface ReviewIssueDetail {
+  severity: string;
+  category: string;
+  file: string;
+  description: string;
+}
+
+interface EvaluationVerdict {
+  file: string;
+  action: string;
+  reason: string;
+}
+
 interface Metrics {
   profile?: string;
   tokens: { input: number; output: number; total: number; cacheRead: number; cacheCreation: number };
@@ -65,6 +78,9 @@ interface Metrics {
     accepted: number;
     rejected: number;
   };
+  reviewIssues: Array<ReviewIssueDetail>;
+  evaluationVerdicts: Array<EvaluationVerdict>;
+  toolUsage: Record<string, Record<string, number>>;
   models: Record<string, ModelAggregate>;
 }
 
@@ -197,6 +213,7 @@ function extractMetrics(dbPath: string): Metrics | undefined {
     // Extract review issues from build:review:complete events
     let issueCount = 0;
     const bySeverity: Record<string, number> = {};
+    const reviewIssues: Array<ReviewIssueDetail> = [];
     const reviewCompleteRows = db.prepare(
       `SELECT data FROM events WHERE type = 'build:review:complete'`
     ).all() as unknown as Array<{ data: string }>;
@@ -204,11 +221,17 @@ function extractMetrics(dbPath: string): Metrics | undefined {
     for (const row of reviewCompleteRows) {
       try {
         const parsed = JSON.parse(row.data);
-        const issues = parsed.issues as Array<{ severity: string }> | undefined;
-        if (issues) {
+        const issues = parsed.issues;
+        if (Array.isArray(issues)) {
           issueCount += issues.length;
           for (const issue of issues) {
             bySeverity[issue.severity] = (bySeverity[issue.severity] ?? 0) + 1;
+            reviewIssues.push({
+              severity: issue.severity ?? '',
+              category: issue.category ?? '',
+              file: issue.file ?? '',
+              description: issue.description ?? '',
+            });
           }
         }
       } catch { /* ignore */ }
@@ -217,6 +240,7 @@ function extractMetrics(dbPath: string): Metrics | undefined {
     // Extract accepted/rejected from build:evaluate:complete events
     let accepted = 0;
     let rejected = 0;
+    const evaluationVerdicts: Array<EvaluationVerdict> = [];
     const evaluateCompleteRows = db.prepare(
       `SELECT data FROM events WHERE type = 'build:evaluate:complete'`
     ).all() as unknown as Array<{ data: string }>;
@@ -226,6 +250,39 @@ function extractMetrics(dbPath: string): Metrics | undefined {
         const parsed = JSON.parse(row.data);
         accepted += parsed.accepted ?? 0;
         rejected += parsed.rejected ?? 0;
+        // Extract per-verdict details when available
+        const verdicts = parsed.verdicts as Array<{ file: string; action: string; reason: string }> | undefined;
+        if (Array.isArray(verdicts)) {
+          for (const verdict of verdicts) {
+            if (verdict && typeof verdict.file === 'string' && typeof verdict.action === 'string' && typeof verdict.reason === 'string') {
+              evaluationVerdicts.push({
+                file: verdict.file,
+                action: verdict.action,
+                reason: verdict.reason,
+              });
+            }
+          }
+        }
+      } catch { /* ignore */ }
+    }
+
+    // Extract tool usage from agent:tool_use events
+    const toolUsage: Record<string, Record<string, number>> = {};
+    const toolUseRows = db.prepare(
+      `SELECT agent, data FROM events WHERE type = 'agent:tool_use'`
+    ).all() as unknown as Array<{ agent: string; data: string }>;
+
+    for (const row of toolUseRows) {
+      try {
+        const parsed = JSON.parse(row.data);
+        const role = row.agent ?? 'unknown';
+        const toolName = parsed.tool as string | undefined;
+        if (toolName) {
+          if (!toolUsage[role]) {
+            toolUsage[role] = {};
+          }
+          toolUsage[role][toolName] = (toolUsage[role][toolName] ?? 0) + 1;
+        }
       } catch { /* ignore */ }
     }
 
@@ -236,6 +293,9 @@ function extractMetrics(dbPath: string): Metrics | undefined {
       phases,
       agents,
       review: { issueCount, bySeverity, accepted, rejected },
+      reviewIssues,
+      evaluationVerdicts,
+      toolUsage,
       models,
     };
   } finally {
