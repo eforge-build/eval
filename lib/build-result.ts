@@ -146,7 +146,7 @@ function extractMetrics(dbPath: string): Metrics | undefined {
 
       // Per-model aggregates
       if (result.modelUsage) {
-        for (const [model, usage] of Object.entries(result.modelUsage)) {
+        for (const [model, usage] of Object.entries(result.modelUsage) as Array<[string, any]>) {
           if (!models[model]) {
             models[model] = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUsd: 0 };
           }
