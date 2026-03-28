@@ -199,9 +199,26 @@ main() {
   # Foreground eforge runs record events here via --no-monitor.
   export EFORGE_MONITOR_DB="$RESULTS_DIR/monitor.db"
 
+  # Start monitor server from the eval repo root for a stable port.
+  # EFORGE_MONITOR_DB directs it to the shared results DB.
+  # Individual eforge runs still use --no-monitor (write directly to DB);
+  # this server provides the web UI for observing runs.
+  local monitor_url=""
+  if [[ "$DRY_RUN" == "false" ]]; then
+    (cd "$SCRIPT_DIR" && exec "$eforge_bin" monitor) &>/dev/null &
+    disown
+    sleep 1
+    if [[ -f "$SCRIPT_DIR/.eforge/daemon.lock" ]]; then
+      monitor_url="http://localhost:$(node -e "console.log(JSON.parse(require('fs').readFileSync('$SCRIPT_DIR/.eforge/daemon.lock','utf8')).port)")"
+    fi
+  fi
+
   echo "Eforge Eval Run"
   echo "  Version: $eforge_version"
   echo "  Results: $run_dir"
+  if [[ -n "$monitor_url" ]]; then
+    echo "  Monitor: $monitor_url"
+  fi
   echo ""
 
   # Parse scenarios and run
