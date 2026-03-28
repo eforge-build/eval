@@ -44,7 +44,7 @@ scenarios:
 
   # --- workspace-api ---
 
-  - id: workspace-api-expedition-engagement
+  - id: workspace-api-excursion-engagement
     fixture: workspace-api
     prd: docs/add-engagement-features.md
     validate:
@@ -53,7 +53,7 @@ scenarios:
       - pnpm test
     description: "Add reactions, threads, and pins to workspace API (expedition, parallel modules)"
     expect:
-      mode: expedition
+      mode: excursion
 
   - id: workspace-api-expedition-extensions
     fixture: workspace-api
