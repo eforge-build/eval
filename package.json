@@ -1,0 +1,17 @@
+{
+  "name": "@eforge-build/eval",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "eval": "./run.sh",
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "tsx": "^4",
+    "typescript": "^5",
+    "yaml": "^2"
+  },
+  "engines": {
+    "node": ">=22.6.0"
+  }
+}

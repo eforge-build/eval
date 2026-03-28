@@ -1,0 +1,72 @@
+# eforge eval
+
+End-to-end evaluation harness for [eforge](https://github.com/eforge-build/eforge). Runs eforge against fixture projects and validates the output compiles and tests pass.
+
+## Prerequisites
+
+- Node.js >= 22.6.0 (for native SQLite support)
+- `eforge` on PATH (or set `EFORGE_BIN`)
+- `pnpm` (for dependency installation)
+
+## Setup
+
+```bash
+pnpm install
+```
+
+## Usage
+
+```bash
+./run.sh                              # Run all scenarios
+./run.sh todo-health-check            # Run one scenario by ID
+./run.sh --dry-run                    # Set up workspaces without running eforge
+./run.sh --env-file .env              # Source env vars (e.g. Langfuse credentials)
+./run.sh --cleanup                    # Remove all results
+```
+
+### Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `EFORGE_BIN` | `eforge` | Path to eforge binary. Use this to test a local build (e.g. `EFORGE_BIN=~/projects/eforge/dist/cli.js`) |
+| `EFORGE_MONITOR_DB` | (auto-set) | Shared SQLite DB for metrics. Set automatically by the harness. |
+| `EFORGE_TRACE_TAGS` | (auto-set) | Langfuse trace tags. Set automatically per scenario. |
+
+## How it works
+
+1. Each scenario copies a fixture to a temp directory in `/tmp/` and initializes a fresh git repo
+2. Runs `eforge run <prd> --auto --verbose --foreground --no-monitor` from the temp workspace
+3. Events are recorded to a shared SQLite DB (`results/monitor.db`) via `EFORGE_MONITOR_DB`
+4. Validation commands run against the workspace (type-check, tests, etc.)
+5. Results are aggregated into `results/<timestamp>/summary.json`
+
+No daemon or monitor server is started - eforge runs in foreground mode with event recording only.
+
+## Adding scenarios
+
+Edit `scenarios.yaml`:
+
+```yaml
+scenarios:
+  - id: my-scenario
+    fixture: my-fixture        # Directory under fixtures/
+    prd: docs/my-prd.md        # PRD path within the fixture
+    description: "What this tests"
+    validate:
+      - pnpm install
+      - pnpm type-check
+      - pnpm test
+    expect:                    # Optional
+      mode: errand
+      buildStagesContain: [implement]
+```
+
+Create the fixture under `fixtures/my-fixture/` with source code and the PRD file.
+
+## Results
+
+Results are stored in `results/<timestamp>/` (gitignored) with:
+- `summary.json` - aggregate metrics across all scenarios
+- `<scenario>/result.json` - per-scenario metrics, validation, expectations
+- `<scenario>/eforge.log` - full eforge output
+- `<scenario>/orchestration.yaml` - preserved plan metadata
