@@ -1,0 +1,29 @@
+name: add-eval-scenarios-tool-and-monitor-url-to-eval-run-response
+description: Add eval_scenarios tool and monitorUrl to eval_run/eval_run_status
+  responses in the MCP server
+created: 2026-03-28
+compiled: 2026-03-28
+mode: single-file-feature
+base_branch: main
+validate:
+  - pnpm type-check
+plans:
+  - id: plan-01-eval-scenarios-and-monitor-url
+    name: Add eval_scenarios Tool and Monitor URL to Responses
+    depends_on: []
+    branch: add-eval-scenarios-tool-and-monitor-url-to-eval-run-response/eval-scenarios-and-monitor-url
+    build:
+      - implement
+      - review-cycle
+    review:
+      strategy: auto
+      perspectives:
+        - code
+      maxRounds: 1
+      evaluatorStrictness: standard
+profile:
+  extends: errand
+  description: Small, self-contained changes. Single file or a few lines. Low
+    risk, no architectural impact.
+  compile:
+    - prd-passthrough
