@@ -4,7 +4,12 @@
   "type": "module",
   "scripts": {
     "eval": "./run.sh",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "mcp-server": "npx tsx mcp-server/index.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1",
+    "zod": "^3.25"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
