@@ -8,15 +8,50 @@ import { z } from 'zod';
 import { spawn } from 'child_process';
 import { readFileSync, readdirSync, existsSync } from 'fs';
 import { join, resolve } from 'path';
+import { parse as parseYaml } from 'yaml';
 
 const PROJECT_ROOT = resolve(import.meta.dirname, '..');
 const RESULTS_DIR = join(PROJECT_ROOT, 'results');
 const RUN_SCRIPT = join(PROJECT_ROOT, 'run.sh');
+const SCENARIOS_FILE = join(PROJECT_ROOT, 'scenarios.yaml');
+const DAEMON_LOCK = join(PROJECT_ROOT, '.eforge', 'daemon.lock');
 
 const server = new McpServer({
   name: 'eval-harness',
   version: '1.0.0',
 });
+
+function getMonitorUrl(): string | undefined {
+  try {
+    if (!existsSync(DAEMON_LOCK)) return undefined;
+    const lock = JSON.parse(readFileSync(DAEMON_LOCK, 'utf8'));
+    if (typeof lock.port === 'number') {
+      return `http://localhost:${lock.port}`;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// --- Tool: eval_scenarios ---
+server.tool(
+  'eval_scenarios',
+  'List available eval scenarios from scenarios.yaml.',
+  {},
+  async () => {
+    const raw = readFileSync(SCENARIOS_FILE, 'utf8');
+    const parsed = parseYaml(raw);
+    const scenarios = (Array.isArray(parsed.scenarios) ? parsed.scenarios : []).map((s: Record<string, unknown>) => ({
+      id: s.id,
+      fixture: s.fixture,
+      prd: s.prd,
+      description: s.description,
+      expect: s.expect,
+    }));
+    return { content: [{ type: 'text', text: JSON.stringify(scenarios) }] };
+  },
+);
 
 // --- Tool: eval_run ---
 server.tool(
@@ -59,8 +94,12 @@ server.tool(
     const pad = (n: number) => String(n).padStart(2, '0');
     const runId = `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-${pad(now.getUTCDate())}T${pad(now.getUTCHours())}-${pad(now.getUTCMinutes())}-${pad(now.getUTCSeconds())}`;
 
+    // Wait briefly for monitor to start and write daemon.lock
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    const monitorUrl = getMonitorUrl();
+
     return {
-      content: [{ type: 'text', text: JSON.stringify({ runId, status: 'started' }) }],
+      content: [{ type: 'text', text: JSON.stringify({ runId, status: 'started', ...(monitorUrl && { monitorUrl }) }) }],
     };
   },
 );
@@ -74,17 +113,18 @@ server.tool(
   },
   async ({ runId }) => {
     const runDir = join(RESULTS_DIR, runId);
+    const monitorUrl = getMonitorUrl();
 
     if (!existsSync(runDir)) {
       return {
-        content: [{ type: 'text', text: JSON.stringify({ runId, status: 'running' }) }],
+        content: [{ type: 'text', text: JSON.stringify({ runId, status: 'running', ...(monitorUrl && { monitorUrl }) }) }],
       };
     }
 
     const summaryPath = join(runDir, 'summary.json');
     if (existsSync(summaryPath)) {
       return {
-        content: [{ type: 'text', text: JSON.stringify({ runId, status: 'completed' }) }],
+        content: [{ type: 'text', text: JSON.stringify({ runId, status: 'completed', ...(monitorUrl && { monitorUrl }) }) }],
       };
     }
 
@@ -101,7 +141,7 @@ server.tool(
       content: [
         {
           type: 'text',
-          text: JSON.stringify({ runId, status: hasResults ? 'failed' : 'running' }),
+          text: JSON.stringify({ runId, status: hasResults ? 'failed' : 'running', ...(monitorUrl && { monitorUrl }) }),
         },
       ],
     };
