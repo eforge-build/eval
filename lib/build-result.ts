@@ -10,12 +10,15 @@ import { DatabaseSync } from 'node:sqlite';
 const [, , outputFile, scenario, eforgeVersion, eforgeCommit, exitCodeStr, durationStr, logFile, validationJson, monitorDbPath] =
   process.argv;
 
-// Parse the eforge log to extract the run ID
+// Parse the eforge log to extract run IDs and Langfuse trace ID
 let langfuseTraceId: string | undefined;
+const runIds: string[] = [];
 try {
   const log = readFileSync(logFile, 'utf8');
-  const match = log.match(/Run:\s+([a-f0-9-]+)/);
-  if (match) langfuseTraceId = match[1];
+  for (const match of log.matchAll(/Run:\s+([a-f0-9-]+)/g)) {
+    runIds.push(match[1]);
+  }
+  if (runIds.length > 0) langfuseTraceId = runIds[0];
 } catch {
   // Log file may not exist if eforge failed to start
 }
@@ -84,7 +87,7 @@ interface Metrics {
   models: Record<string, ModelAggregate>;
 }
 
-function extractMetrics(dbPath: string): Metrics | undefined {
+function extractMetrics(dbPath: string, runIds: string[]): Metrics | undefined {
   if (!existsSync(dbPath)) return undefined;
 
   let db: DatabaseSync;
@@ -94,6 +97,11 @@ function extractMetrics(dbPath: string): Metrics | undefined {
     return undefined;
   }
 
+  // Build a run_id filter clause. If no run IDs are known, fall back to unfiltered (best effort).
+  const hasFilter = runIds.length > 0;
+  const placeholders = runIds.map(() => '?').join(', ');
+  const runFilter = hasFilter ? `AND run_id IN (${placeholders})` : '';
+
   try {
     // Verify the events table exists (DB may be empty if WAL wasn't copied)
     const tableCheck = db.prepare(
@@ -102,9 +110,10 @@ function extractMetrics(dbPath: string): Metrics | undefined {
     if (!tableCheck) return undefined;
     // Extract profile from plan:profile event
     let profile: string | undefined;
-    const profileRows = db.prepare(
-      `SELECT data FROM events WHERE type = 'plan:profile' LIMIT 1`
-    ).all() as unknown as Array<{ data: string }>;
+    const profileStmt = db.prepare(
+      `SELECT data FROM events WHERE type = 'plan:profile' ${runFilter} LIMIT 1`
+    );
+    const profileRows = (hasFilter ? profileStmt.all(...runIds) : profileStmt.all()) as unknown as Array<{ data: string }>;
     if (profileRows.length > 0) {
       try {
         const parsed = JSON.parse(profileRows[0].data);
@@ -113,9 +122,10 @@ function extractMetrics(dbPath: string): Metrics | undefined {
     }
 
     // Extract agent results
-    const agentResultRows = db.prepare(
-      `SELECT agent, data FROM events WHERE type = 'agent:result'`
-    ).all() as unknown as Array<{ agent: string; data: string }>;
+    const agentResultStmt = db.prepare(
+      `SELECT agent, data FROM events WHERE type = 'agent:result' ${runFilter}`
+    );
+    const agentResultRows = (hasFilter ? agentResultStmt.all(...runIds) : agentResultStmt.all()) as unknown as Array<{ agent: string; data: string }>;
 
     let totalInput = 0;
     let totalOutput = 0;
@@ -176,9 +186,10 @@ function extractMetrics(dbPath: string): Metrics | undefined {
     }
 
     // Extract phase durations from phase:start/phase:end
-    const phaseRows = db.prepare(
-      `SELECT type, data, timestamp FROM events WHERE type IN ('phase:start', 'phase:end') ORDER BY id`
-    ).all() as unknown as Array<{ type: string; data: string; timestamp: string }>;
+    const phaseStmt = db.prepare(
+      `SELECT type, data, timestamp FROM events WHERE type IN ('phase:start', 'phase:end') ${runFilter} ORDER BY id`
+    );
+    const phaseRows = (hasFilter ? phaseStmt.all(...runIds) : phaseStmt.all()) as unknown as Array<{ type: string; data: string; timestamp: string }>;
 
     const phaseTimestamps: Record<string, PhaseTimestamps> = {};
     const runIdToCommand: Record<string, string> = {};
@@ -214,9 +225,10 @@ function extractMetrics(dbPath: string): Metrics | undefined {
     let issueCount = 0;
     const bySeverity: Record<string, number> = {};
     const reviewIssues: Array<ReviewIssueDetail> = [];
-    const reviewCompleteRows = db.prepare(
-      `SELECT data FROM events WHERE type = 'build:review:complete'`
-    ).all() as unknown as Array<{ data: string }>;
+    const reviewCompleteStmt = db.prepare(
+      `SELECT data FROM events WHERE type = 'build:review:complete' ${runFilter}`
+    );
+    const reviewCompleteRows = (hasFilter ? reviewCompleteStmt.all(...runIds) : reviewCompleteStmt.all()) as unknown as Array<{ data: string }>;
 
     for (const row of reviewCompleteRows) {
       try {
@@ -241,9 +253,10 @@ function extractMetrics(dbPath: string): Metrics | undefined {
     let accepted = 0;
     let rejected = 0;
     const evaluationVerdicts: Array<EvaluationVerdict> = [];
-    const evaluateCompleteRows = db.prepare(
-      `SELECT data FROM events WHERE type = 'build:evaluate:complete'`
-    ).all() as unknown as Array<{ data: string }>;
+    const evaluateCompleteStmt = db.prepare(
+      `SELECT data FROM events WHERE type = 'build:evaluate:complete' ${runFilter}`
+    );
+    const evaluateCompleteRows = (hasFilter ? evaluateCompleteStmt.all(...runIds) : evaluateCompleteStmt.all()) as unknown as Array<{ data: string }>;
 
     for (const row of evaluateCompleteRows) {
       try {
@@ -268,9 +281,10 @@ function extractMetrics(dbPath: string): Metrics | undefined {
 
     // Extract tool usage from agent:tool_use events
     const toolUsage: Record<string, Record<string, number>> = {};
-    const toolUseRows = db.prepare(
-      `SELECT agent, data FROM events WHERE type = 'agent:tool_use'`
-    ).all() as unknown as Array<{ agent: string; data: string }>;
+    const toolUseStmt = db.prepare(
+      `SELECT agent, data FROM events WHERE type = 'agent:tool_use' ${runFilter}`
+    );
+    const toolUseRows = (hasFilter ? toolUseStmt.all(...runIds) : toolUseStmt.all()) as unknown as Array<{ agent: string; data: string }>;
 
     for (const row of toolUseRows) {
       try {
@@ -317,7 +331,7 @@ const result: Record<string, unknown> = {
 
 // Extract metrics from monitor DB if available
 if (monitorDbPath) {
-  const metrics = extractMetrics(monitorDbPath);
+  const metrics = extractMetrics(monitorDbPath, runIds);
   if (metrics) {
     result.metrics = metrics;
   }
