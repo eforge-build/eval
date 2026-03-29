@@ -1,0 +1,29 @@
+name: per-scenario-envfile-support
+description: Add optional per-scenario envFile field to scenarios.yaml, wire it
+  through the TSV pipeline, and source it before eforge invocation
+created: 2026-03-29
+compiled: 2026-03-29
+mode: pipeline-plumbing
+base_branch: main
+validate:
+  - pnpm type-check
+plans:
+  - id: plan-01-envfile-plumbing
+    name: Per-Scenario envFile Plumbing
+    depends_on: []
+    branch: per-scenario-envfile-support/envfile-plumbing
+    build:
+      - implement
+      - review-cycle
+    review:
+      strategy: auto
+      perspectives:
+        - code
+      maxRounds: 1
+      evaluatorStrictness: standard
+profile:
+  extends: errand
+  description: Small, self-contained changes. Single file or a few lines. Low
+    risk, no architectural impact.
+  compile:
+    - prd-passthrough
