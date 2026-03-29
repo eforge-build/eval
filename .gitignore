@@ -3,3 +3,4 @@ node_modules/
 .eforge/
 .schaake-os-track
 .env
+env/

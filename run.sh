@@ -11,7 +11,7 @@ MAX_RUNS=50  # Keep only the most recent N runs; older ones are pruned automatic
 source "$SCRIPT_DIR/lib/run-scenario.sh"
 
 # Parse scenarios.yaml into tab-separated fields using node
-# Fields: id, fixture, prd, validate (||| delimited), description, expect (JSON), configOverlay (JSON)
+# Fields: id, fixture, prd, validate (||| delimited), description, expect (JSON), configOverlay (JSON), envFile
 parse_scenarios() {
   npx tsx -e "
     import { readFileSync } from 'fs';
@@ -21,7 +21,8 @@ parse_scenarios() {
       const validate = (s.validate || []).join('|||');
       const expect = JSON.stringify(s.expect || {});
       const configOverlay = JSON.stringify(s.configOverlay || {});
-      console.log([s.id, s.fixture, s.prd, validate, s.description, expect, configOverlay].join('\t'));
+      const envFile = s.envFile || '';
+      console.log([s.id, s.fixture, s.prd, validate, s.description, expect, configOverlay, envFile].join('\t'));
     }
   "
 }
@@ -380,9 +381,11 @@ main() {
   local passed=0
   local total=0
 
-  while IFS=$'\t' read -r id fixture prd validate description expect_json config_overlay_json; do
+  while IFS=$'\t' read -r id fixture prd validate description expect_json config_overlay_json env_file; do
     # Export config overlay for run-scenario.sh
     export SCENARIO_CONFIG_OVERLAY="${config_overlay_json}"
+    # Export per-scenario env file for run-scenario.sh
+    export SCENARIO_ENV_FILE="${env_file}"
     # Filter if specified
     if [[ ${#filters[@]} -gt 0 ]]; then
       local match=false

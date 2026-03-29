@@ -66,6 +66,22 @@ run_scenario() {
     git checkout --quiet -b "eval/$id"
   )
 
+  # Source per-scenario env file (overrides global --env-file vars)
+  if [[ -n "${SCENARIO_ENV_FILE:-}" ]]; then
+    local env_file_path="$SCRIPT_DIR/$SCENARIO_ENV_FILE"
+    if [[ ! -f "$env_file_path" ]]; then
+      echo "  ERROR: Scenario env file not found: $SCENARIO_ENV_FILE"
+      write_error_result "$scenario_dir" "$id" "$eforge_version" "$eforge_commit" "$start_time" \
+        "Scenario env file not found: $SCENARIO_ENV_FILE"
+      return 1
+    fi
+    echo "  Sourcing env file: $SCENARIO_ENV_FILE"
+    set -a
+    # shellcheck disable=SC1090
+    source "$env_file_path" || { set +a; echo "  ERROR: Failed to source env file: $env_file_path"; return 1; }
+    set +a
+  fi
+
   # Step 3: Run eforge (or skip in dry-run mode)
   local eforge_exit=0
   if [[ "$DRY_RUN" == "true" ]]; then
