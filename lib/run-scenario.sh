@@ -37,6 +37,24 @@ run_scenario() {
   # Record workspace path for debugging
   echo "$workspace" > "$scenario_dir/workspace-path.txt"
 
+  # Step 1b: Apply config overlay (if any)
+  if [[ "${SCENARIO_CONFIG_OVERLAY:-}" != "{}" && -n "${SCENARIO_CONFIG_OVERLAY:-}" ]]; then
+    echo "  Applying config overlay..."
+    if ! npx tsx -e "
+      import { readFileSync, writeFileSync, existsSync } from 'fs';
+      import { join } from 'path';
+      import { parse, stringify } from 'yaml';
+      const ws = process.argv[1];
+      const cfgPath = join(ws, 'eforge.yaml');
+      const base = existsSync(cfgPath) ? parse(readFileSync(cfgPath, 'utf8') || '{}') : {};
+      const overlay = JSON.parse(process.argv[2]);
+      writeFileSync(cfgPath, stringify({ ...base, ...overlay }));
+    " "$workspace" "$SCENARIO_CONFIG_OVERLAY"; then
+      echo "  ERROR: Failed to apply config overlay" >&2
+      return 1
+    fi
+  fi
+
   echo "  Initializing git repo..."
   (
     cd "$workspace"

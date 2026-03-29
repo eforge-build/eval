@@ -113,3 +113,91 @@ scenarios:
       mode: excursion
       buildStagesContain:
         - test-cycle
+
+  # --- Pi backend scenarios ---
+
+  - id: pi-todo-api-errand-health-check
+    fixture: todo-api
+    prd: docs/add-health-check.md
+    validate:
+      - pnpm install
+      - pnpm type-check
+      - pnpm test
+      - test -f .eforge/hook-events.log && grep -q EFORGE_CWD .eforge/hook-events.log
+    description: "Add GET /health endpoint to Express API (Pi backend)"
+    expect:
+      mode: errand
+      buildStagesExclude:
+        - test-cycle
+    configOverlay:
+      backend: pi
+      pi:
+        provider: openrouter
+        model: anthropic/claude-sonnet-4
+
+  - id: pi-todo-api-errand-skip
+    fixture: todo-api
+    prd: docs/skip-already-done.md
+    validate:
+      - pnpm install
+      - pnpm type-check
+      - pnpm test
+    description: "PRD describes what db.ts already implements - should skip (Pi backend)"
+    expect:
+      mode: errand
+      skip: true
+    configOverlay:
+      backend: pi
+      pi:
+        provider: openrouter
+        model: anthropic/claude-sonnet-4
+
+  - id: pi-todo-api-excursion-jwt-auth
+    fixture: todo-api
+    prd: docs/add-jwt-auth.md
+    validate:
+      - pnpm install
+      - pnpm type-check
+      - pnpm test
+    description: "Add JWT auth middleware + protected routes (Pi backend)"
+    expect:
+      mode: excursion
+    configOverlay:
+      backend: pi
+      pi:
+        provider: openrouter
+        model: anthropic/claude-sonnet-4
+
+  - id: pi-notes-api-excursion-search
+    fixture: notes-api
+    prd: docs/prd/add-search.md
+    validate:
+      - pnpm install
+      - pnpm type-check
+      - pnpm test
+    description: "Add GET /notes/search?q= with test coverage (Pi backend)"
+    expect:
+      mode: excursion
+      buildStagesContain:
+        - test-cycle
+    configOverlay:
+      backend: pi
+      pi:
+        provider: openrouter
+        model: anthropic/claude-sonnet-4
+
+  - id: pi-workspace-api-excursion-engagement
+    fixture: workspace-api
+    prd: docs/add-engagement-features.md
+    validate:
+      - pnpm install
+      - pnpm type-check
+      - pnpm test
+    description: "Add reactions, threads, and pins to workspace API (Pi backend)"
+    expect:
+      mode: excursion
+    configOverlay:
+      backend: pi
+      pi:
+        provider: openrouter
+        model: anthropic/claude-sonnet-4
