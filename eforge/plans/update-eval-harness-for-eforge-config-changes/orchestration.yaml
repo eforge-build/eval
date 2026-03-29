@@ -1,0 +1,28 @@
+name: update-eval-harness-for-eforge-config-changes
+description: Align eval harness with eforge engine config path changes
+  (eforge/config.yaml) and add agents.models.max to pi scenarios
+created: 2026-03-29
+compiled: 2026-03-29
+mode: config-fixup
+base_branch: main
+validate:
+  - pnpm type-check
+plans:
+  - id: plan-01-config-path-migration
+    name: Migrate fixture configs and overlay logic to eforge/config.yaml
+    depends_on: []
+    branch: update-eval-harness-for-eforge-config-changes/config-path-migration
+    build:
+      - implement
+    review:
+      strategy: auto
+      perspectives:
+        - code
+      maxRounds: 1
+      evaluatorStrictness: standard
+profile:
+  extends: errand
+  description: Small, self-contained changes. Single file or a few lines. Low
+    risk, no architectural impact.
+  compile:
+    - prd-passthrough
