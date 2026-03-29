@@ -18,6 +18,8 @@ scenarios:
       mode: errand
       buildStagesExclude:
         - test-cycle
+    configOverlay:
+      backend: claude-sdk
 
   - id: todo-api-excursion-jwt-auth
     fixture: todo-api
@@ -29,6 +31,8 @@ scenarios:
     description: "Add JWT auth middleware + protected routes"
     expect:
       mode: excursion
+    configOverlay:
+      backend: claude-sdk
 
   - id: todo-api-errand-skip
     fixture: todo-api
@@ -41,6 +45,8 @@ scenarios:
     expect:
       mode: errand
       skip: true
+    configOverlay:
+      backend: claude-sdk
 
   # --- workspace-api ---
 
@@ -54,6 +60,8 @@ scenarios:
     description: "Add reactions, threads, and pins to workspace API (expedition, parallel modules)"
     expect:
       mode: excursion
+    configOverlay:
+      backend: claude-sdk
 
   - id: workspace-api-expedition-extensions
     fixture: workspace-api
@@ -65,6 +73,8 @@ scenarios:
     description: "Add bookmarks, categories, and activity modules - 3 independent verticals"
     expect:
       mode: expedition
+    configOverlay:
+      backend: claude-sdk
 
   # --- notes-api ---
 
@@ -78,6 +88,8 @@ scenarios:
     description: "Fix stale README and API reference - docs only, no code changes"
     expect:
       mode: errand
+    configOverlay:
+      backend: claude-sdk
 
   - id: notes-api-excursion-refactor-store
     fixture: notes-api
@@ -89,6 +101,8 @@ scenarios:
     description: "Extract generic EntityStore from duplicated CRUD patterns in store.ts"
     expect:
       mode: excursion
+    configOverlay:
+      backend: claude-sdk
 
   - id: notes-api-excursion-dead-code
     fixture: notes-api
@@ -100,6 +114,8 @@ scenarios:
     description: "Remove src/legacy/, formatCsv(), and validateCsvRow() dead code"
     expect:
       mode: excursion
+    configOverlay:
+      backend: claude-sdk
 
   - id: notes-api-excursion-search
     fixture: notes-api
@@ -113,6 +129,8 @@ scenarios:
       mode: excursion
       buildStagesContain:
         - test-cycle
+    configOverlay:
+      backend: claude-sdk
 
   # --- Pi backend scenarios ---
 
