@@ -1,0 +1,32 @@
+name: add-pi-backend-eval-scenarios
+description: Add config overlay mechanism and Pi backend eval scenarios to the
+  eforge eval harness
+created: 2026-03-28
+compiled: 2026-03-28
+mode: eval-harness-extension
+base_branch: main
+validate:
+  - pnpm type-check
+plans:
+  - id: plan-01-config-overlay-and-pi-scenarios
+    name: Config Overlay Mechanism and Pi Backend Scenarios
+    depends_on: []
+    branch: add-pi-backend-eval-scenarios/config-overlay-and-pi-scenarios
+    build:
+      - implement
+      - review-cycle
+    review:
+      strategy: auto
+      perspectives:
+        - code
+      maxRounds: 1
+      evaluatorStrictness: standard
+profile:
+  extends: excursion
+  description: "Multi-file feature work or refactors. Use when changes touch many
+    files but are tightly coupled - e.g., type signature changes that cascade to
+    consumers, interface refactors, rename-and-update-all-callers. The key test:
+    can every piece pass type-check independently? If not, use excursion."
+  compile:
+    - planner
+    - plan-review-cycle
