@@ -41,11 +41,12 @@ run_scenario() {
   if [[ "${SCENARIO_CONFIG_OVERLAY:-}" != "{}" && -n "${SCENARIO_CONFIG_OVERLAY:-}" ]]; then
     echo "  Applying config overlay..."
     if ! npx tsx -e "
-      import { readFileSync, writeFileSync, existsSync } from 'fs';
+      import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
       import { join } from 'path';
       import { parse, stringify } from 'yaml';
       const ws = process.argv[1];
-      const cfgPath = join(ws, 'eforge.yaml');
+      mkdirSync(join(ws, 'eforge'), { recursive: true });
+      const cfgPath = join(ws, 'eforge', 'config.yaml');
       const base = existsSync(cfgPath) ? parse(readFileSync(cfgPath, 'utf8') || '{}') : {};
       const overlay = JSON.parse(process.argv[2]);
       writeFileSync(cfgPath, stringify({ ...base, ...overlay }));

@@ -133,7 +133,10 @@ scenarios:
       backend: pi
       pi:
         provider: openrouter
-        model: anthropic/claude-sonnet-4
+        model: nvidia/nemotron-3-super-120b-a12b:free
+      agents:
+        models:
+          max: nvidia/nemotron-3-super-120b-a12b:free
 
   - id: pi-todo-api-errand-skip
     fixture: todo-api
@@ -150,7 +153,10 @@ scenarios:
       backend: pi
       pi:
         provider: openrouter
-        model: anthropic/claude-sonnet-4
+        model: nvidia/nemotron-3-super-120b-a12b:free
+      agents:
+        models:
+          max: nvidia/nemotron-3-super-120b-a12b:free
 
   - id: pi-todo-api-excursion-jwt-auth
     fixture: todo-api
@@ -166,7 +172,10 @@ scenarios:
       backend: pi
       pi:
         provider: openrouter
-        model: anthropic/claude-sonnet-4
+        model: nvidia/nemotron-3-super-120b-a12b:free
+      agents:
+        models:
+          max: nvidia/nemotron-3-super-120b-a12b:free
 
   - id: pi-notes-api-excursion-search
     fixture: notes-api
@@ -184,7 +193,10 @@ scenarios:
       backend: pi
       pi:
         provider: openrouter
-        model: anthropic/claude-sonnet-4
+        model: nvidia/nemotron-3-super-120b-a12b:free
+      agents:
+        models:
+          max: nvidia/nemotron-3-super-120b-a12b:free
 
   - id: pi-workspace-api-excursion-engagement
     fixture: workspace-api
@@ -200,4 +212,7 @@ scenarios:
       backend: pi
       pi:
         provider: openrouter
-        model: anthropic/claude-sonnet-4
+        model: nvidia/nemotron-3-super-120b-a12b:free
+      agents:
+        models:
+          max: nvidia/nemotron-3-super-120b-a12b:free
