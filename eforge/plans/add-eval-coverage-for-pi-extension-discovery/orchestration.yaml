@@ -1,0 +1,28 @@
+name: add-eval-coverage-for-pi-extension-discovery
+description: Add a marker Pi extension to the todo-api fixture and validate it
+  loads during Pi backend eval scenarios
+created: 2026-03-30
+compiled: 2026-03-30
+mode: trivial-fixture-addition
+base_branch: main
+validate:
+  - pnpm type-check
+plans:
+  - id: plan-01-marker-extension
+    name: Add Pi Marker Extension and Validation
+    depends_on: []
+    branch: add-eval-coverage-for-pi-extension-discovery/marker-extension
+    build:
+      - implement
+    review:
+      strategy: auto
+      perspectives:
+        - code
+      maxRounds: 1
+      evaluatorStrictness: lenient
+profile:
+  extends: errand
+  description: Small, self-contained changes. Single file or a few lines. Low
+    risk, no architectural impact.
+  compile:
+    - prd-passthrough
