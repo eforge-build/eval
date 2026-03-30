@@ -142,6 +142,7 @@ scenarios:
       - pnpm type-check
       - pnpm test
       - test -f .eforge/hook-events.log && grep -q EFORGE_CWD .eforge/hook-events.log
+      - test -f .pi-extension-loaded
     description: "Add GET /health endpoint to Express API (Pi backend)"
     expect:
       mode: errand
