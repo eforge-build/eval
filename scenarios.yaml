@@ -153,7 +153,6 @@ scenarios:
       backend: pi
       pi:
         provider: openrouter
-        model: nvidia/nemotron-3-super-120b-a12b:free
       agents:
         models:
           max: nvidia/nemotron-3-super-120b-a12b:free
@@ -174,7 +173,6 @@ scenarios:
       backend: pi
       pi:
         provider: openrouter
-        model: nvidia/nemotron-3-super-120b-a12b:free
       agents:
         models:
           max: nvidia/nemotron-3-super-120b-a12b:free
@@ -194,7 +192,6 @@ scenarios:
       backend: pi
       pi:
         provider: openrouter
-        model: nvidia/nemotron-3-super-120b-a12b:free
       agents:
         models:
           max: nvidia/nemotron-3-super-120b-a12b:free
@@ -216,7 +213,6 @@ scenarios:
       backend: pi
       pi:
         provider: openrouter
-        model: nvidia/nemotron-3-super-120b-a12b:free
       agents:
         models:
           max: nvidia/nemotron-3-super-120b-a12b:free
@@ -236,7 +232,50 @@ scenarios:
       backend: pi
       pi:
         provider: openrouter
-        model: nvidia/nemotron-3-super-120b-a12b:free
       agents:
         models:
           max: nvidia/nemotron-3-super-120b-a12b:free
+
+  # --- Pi backend scenarios (OpenAI Codex OAuth) ---
+
+  - id: pi-codex-todo-api-errand-health-check
+    fixture: todo-api
+    prd: docs/add-health-check.md
+    validate:
+      - pnpm install
+      - pnpm type-check
+      - pnpm test
+      - test -f .eforge/hook-events.log && grep -q EFORGE_CWD .eforge/hook-events.log
+      - test -f .pi-extension-loaded
+    description: "Add GET /health endpoint to Express API (Pi backend via OpenAI Codex OAuth)"
+    expect:
+      mode: errand
+      buildStagesExclude:
+        - test-cycle
+    configOverlay:
+      backend: pi
+      pi:
+        provider: openai-codex
+      agents:
+        models:
+          max: gpt-5.4
+
+  - id: pi-codex-notes-api-excursion-search
+    fixture: notes-api
+    prd: docs/prd/add-search.md
+    validate:
+      - pnpm install
+      - pnpm type-check
+      - pnpm test
+    description: "Add GET /notes/search?q= with test coverage (Pi backend via OpenAI Codex OAuth)"
+    expect:
+      mode: excursion
+      buildStagesContain:
+        - test-cycle
+    configOverlay:
+      backend: pi
+      pi:
+        provider: openai-codex
+      agents:
+        models:
+          max: gpt-5.4

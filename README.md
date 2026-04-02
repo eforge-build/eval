@@ -19,6 +19,7 @@ pnpm install
 ```bash
 ./run.sh                              # Run all scenarios
 ./run.sh todo-health-check            # Run one scenario by ID
+./run.sh pi-codex-todo-api-errand-health-check  # Run one Pi/Codex OAuth scenario
 ./run.sh --dry-run                    # Set up workspaces without running eforge
 ./run.sh --env-file .env              # Source env vars (e.g. Langfuse credentials)
 ./run.sh --cleanup                    # Remove all results
@@ -31,6 +32,20 @@ pnpm install
 | `EFORGE_BIN` | `eforge` | Path to eforge binary. Use this to test a local build (e.g. `EFORGE_BIN=~/projects/eforge/dist/cli.js`) |
 | `EFORGE_MONITOR_DB` | (auto-set) | Shared SQLite DB for metrics. Set automatically by the harness. |
 | `EFORGE_TRACE_TAGS` | (auto-set) | Langfuse trace tags. Set automatically per scenario. |
+
+### Pi provider auth
+
+Pi-backed scenarios can authenticate in two ways:
+
+- API key env vars via a scenario `envFile` such as [`env/pi.env`](./env/pi.env)
+- OAuth or cached credentials from `~/.pi/agent/auth.json`
+
+This repo now includes Pi scenarios for both:
+
+- OpenRouter API-key-based Pi runs
+- OpenAI Codex OAuth runs using `pi.provider: openai-codex` and `agents.models.max: gpt-5.4`
+
+If you are testing Codex through Pi, make sure you have already logged in with Pi in your user environment before running the evals.
 
 ## How it works
 
@@ -62,6 +77,8 @@ scenarios:
 ```
 
 Create the fixture under `fixtures/my-fixture/` with source code and the PRD file.
+
+For Pi scenarios, configure the provider under `pi.provider` and the model under `agents.model` or `agents.models.*`. Do not use `pi.model`; that is no longer part of eforge's Pi config schema.
 
 ## Results
 
