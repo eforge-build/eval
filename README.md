@@ -20,6 +20,7 @@ pnpm install
 ./run.sh                              # Run all scenarios
 ./run.sh todo-health-check            # Run one scenario by ID
 ./run.sh pi-codex-todo-api-errand-health-check  # Run one Pi/Codex OAuth scenario
+./open-monitor.sh                     # Open monitor for eval results DB
 ./run.sh --dry-run                    # Set up workspaces without running eforge
 ./run.sh --env-file .env              # Source env vars (e.g. Langfuse credentials)
 ./run.sh --cleanup                    # Remove all results

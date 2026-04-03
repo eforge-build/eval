@@ -4,3 +4,6 @@ build:
   postMergeCommands:
     - pnpm install
     - pnpm type-check
+
+monitor:
+  retentionCount: 50
