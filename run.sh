@@ -258,12 +258,13 @@ print_observations() {
     const fs = require('fs');
     const analysis = JSON.parse(fs.readFileSync('$analysis_file', 'utf8'));
     const important = (analysis.observations || []).filter(o => o.severity === 'warning' || o.severity === 'attention');
-    if (important.length === 0) return;
-    console.log('');
-    console.log('⚠ Observations:');
-    for (const o of important) {
-      const icon = o.severity === 'warning' ? '⚠' : '🔍';
-      console.log('  ' + icon + ' [' + o.severity.toUpperCase() + '] ' + o.message);
+    if (important.length > 0) {
+      console.log('');
+      console.log('⚠ Observations:');
+      for (const o of important) {
+        const icon = o.severity === 'warning' ? '⚠' : '🔍';
+        console.log('  ' + icon + ' [' + o.severity.toUpperCase() + '] ' + o.message);
+      }
     }
   "
 }

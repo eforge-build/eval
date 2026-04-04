@@ -151,11 +151,11 @@ scenarios:
     envFile: env/pi.env
     configOverlay:
       backend: pi
-      pi:
-        provider: openrouter
       agents:
         models:
-          max: nvidia/nemotron-3-super-120b-a12b:free
+          max:
+            provider: openrouter
+            id: nvidia/nemotron-3-super-120b-a12b:free
 
   - id: pi-todo-api-errand-skip
     fixture: todo-api
@@ -171,11 +171,11 @@ scenarios:
     envFile: env/pi.env
     configOverlay:
       backend: pi
-      pi:
-        provider: openrouter
       agents:
         models:
-          max: nvidia/nemotron-3-super-120b-a12b:free
+          max:
+            provider: openrouter
+            id: nvidia/nemotron-3-super-120b-a12b:free
 
   - id: pi-todo-api-excursion-jwt-auth
     fixture: todo-api
@@ -190,11 +190,11 @@ scenarios:
     envFile: env/pi.env
     configOverlay:
       backend: pi
-      pi:
-        provider: openrouter
       agents:
         models:
-          max: nvidia/nemotron-3-super-120b-a12b:free
+          max:
+            provider: openrouter
+            id: nvidia/nemotron-3-super-120b-a12b:free
 
   - id: pi-notes-api-excursion-search
     fixture: notes-api
@@ -211,11 +211,11 @@ scenarios:
     envFile: env/pi.env
     configOverlay:
       backend: pi
-      pi:
-        provider: openrouter
       agents:
         models:
-          max: nvidia/nemotron-3-super-120b-a12b:free
+          max:
+            provider: openrouter
+            id: nvidia/nemotron-3-super-120b-a12b:free
 
   - id: pi-workspace-api-excursion-engagement
     fixture: workspace-api
@@ -230,11 +230,11 @@ scenarios:
     envFile: env/pi.env
     configOverlay:
       backend: pi
-      pi:
-        provider: openrouter
       agents:
         models:
-          max: nvidia/nemotron-3-super-120b-a12b:free
+          max:
+            provider: openrouter
+            id: nvidia/nemotron-3-super-120b-a12b:free
 
   # --- Pi backend scenarios (OpenAI Codex OAuth) ---
 
@@ -254,11 +254,11 @@ scenarios:
         - test-cycle
     configOverlay:
       backend: pi
-      pi:
-        provider: openai-codex
       agents:
         models:
-          max: gpt-5.4
+          max:
+            provider: openai-codex
+            id: gpt-5.4
 
   - id: pi-codex-notes-api-excursion-search
     fixture: notes-api
@@ -274,8 +274,52 @@ scenarios:
         - test-cycle
     configOverlay:
       backend: pi
-      pi:
-        provider: openai-codex
       agents:
         models:
-          max: gpt-5.4
+          max:
+            provider: openai-codex
+            id: gpt-5.4
+
+  # --- Pi backend scenarios (Gemma 4 llamma.cp) ---
+
+  - id: pi-gemma4-todo-api-errand-health-check
+    fixture: todo-api
+    prd: docs/add-health-check.md
+    validate:
+      - pnpm install
+      - pnpm type-check
+      - pnpm test
+      - test -f .eforge/hook-events.log && grep -q EFORGE_CWD .eforge/hook-events.log
+      - test -f .pi-extension-loaded
+    description: "Add GET /health endpoint to Express API (Pi backend via OpenAI Codex OAuth)"
+    expect:
+      mode: errand
+      buildStagesExclude:
+        - test-cycle
+    configOverlay:
+      backend: pi
+      agents:
+        models:
+          max:
+            provider: llama-cpp
+            id: gemma-4
+
+  - id: pi-gemma4-notes-api-excursion-search
+    fixture: notes-api
+    prd: docs/prd/add-search.md
+    validate:
+      - pnpm install
+      - pnpm type-check
+      - pnpm test
+    description: "Add GET /notes/search?q= with test coverage (Pi backend via OpenAI Codex OAuth)"
+    expect:
+      mode: excursion
+      buildStagesContain:
+        - test-cycle
+    configOverlay:
+      backend: pi
+      agents:
+        models:
+          max:
+            provider: llama-cpp
+            id: gemma-4
