@@ -588,6 +588,11 @@ main() {
     echo "  Analysis skipped (no data or error)"
   fi
 
+  # Run variant comparison
+  echo ""
+  echo "Running variant comparison..."
+  npx tsx "$SCRIPT_DIR/lib/compare.ts" "$run_dir" "$SCENARIOS_FILE" 2>/dev/null || true
+
   # Print comparison if --compare was specified
   if [[ -n "$compare_timestamp" ]]; then
     local baseline_summary="$RESULTS_DIR/$compare_timestamp/summary.json"
