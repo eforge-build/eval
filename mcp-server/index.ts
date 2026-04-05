@@ -338,6 +338,49 @@ server.tool(
   },
 );
 
+// --- Tool: eval_compare ---
+server.tool(
+  'eval_compare',
+  'Return the variant comparison report for a given run.',
+  {
+    timestamp: z.string().describe('The run timestamp'),
+  },
+  async ({ timestamp }) => {
+    const comparisonPath = join(RESULTS_DIR, timestamp, 'comparison.json');
+    if (!existsSync(comparisonPath)) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              error: `No comparison.json found for run ${timestamp}. This may be a single-variant run with no comparisons.`,
+            }),
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    let comparison: unknown;
+    try {
+      comparison = JSON.parse(readFileSync(comparisonPath, 'utf8'));
+    } catch (e) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              error: `Failed to parse comparison.json for run ${timestamp}: ${e instanceof Error ? e.message : String(e)}`,
+            }),
+          },
+        ],
+        isError: true,
+      };
+    }
+    return { content: [{ type: 'text', text: JSON.stringify(comparison) }] };
+  },
+);
+
 // --- Start server ---
 async function main() {
   const transport = new StdioServerTransport();
