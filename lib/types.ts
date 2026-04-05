@@ -127,6 +127,7 @@ export interface ScenarioMeta {
   };
   envFile?: string;
   variantLabel?: string;
+  compareGroup?: string;
   configOverlay?: {
     backend?: string;
     agents?: {

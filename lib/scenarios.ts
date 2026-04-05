@@ -22,6 +22,7 @@ export function loadScenarios(yamlPath: string): ScenarioMeta[] {
  * Format: "<fixture>::<prd>"
  */
 export function deriveGroupId(s: ScenarioMeta): string {
+  if (s.compareGroup) return s.compareGroup;
   return `${s.fixture}::${s.prd}`;
 }
 
@@ -42,7 +43,8 @@ export function deriveVariantLabel(s: ScenarioMeta): string {
     const modelId = s.configOverlay.agents?.models?.max?.id;
 
     if (backend && modelId) {
-      return `${backend}/${modelId}`;
+      const strippedModelId = modelId.includes('/') ? modelId.split('/').pop()! : modelId;
+      return `${backend}/${strippedModelId}`;
     }
 
     if (backend) {
