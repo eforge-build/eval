@@ -5,6 +5,7 @@
 process.removeAllListeners('warning');
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { DatabaseSync } from 'node:sqlite';
+import { type AgentAggregate, type ModelAggregate, type PhaseTimestamps, type ReviewIssueDetail, type EvaluationVerdict, type ScenarioMetrics } from './types.js';
 
 
 const [, , outputFile, scenario, eforgeVersion, eforgeCommit, exitCodeStr, durationStr, logFile, validationJson, monitorDbPath] =
@@ -31,63 +32,7 @@ try {
   // Empty or malformed validation
 }
 
-interface PhaseTimestamps {
-  start?: string;
-  end?: string;
-}
-
-interface AgentAggregate {
-  count: number;
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
-  cacheRead: number;
-  cacheCreation: number;
-  costUsd: number;
-  durationMs: number;
-  turns: number;
-}
-
-interface ModelAggregate {
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadInputTokens: number;
-  cacheCreationInputTokens: number;
-  costUsd: number;
-}
-
-interface ReviewIssueDetail {
-  severity: string;
-  category: string;
-  file: string;
-  description: string;
-}
-
-interface EvaluationVerdict {
-  file: string;
-  action: string;
-  reason: string;
-}
-
-interface Metrics {
-  profile?: string;
-  tokens: { input: number; output: number; total: number; cacheRead: number; cacheCreation: number };
-  costUsd: number;
-  phases: Record<string, { durationMs: number }>;
-  agents: Record<string, AgentAggregate>;
-  review: {
-    issueCount: number;
-    bySeverity: Record<string, number>;
-    accepted: number;
-    rejected: number;
-  };
-  reviewIssues: Array<ReviewIssueDetail>;
-  evaluationVerdicts: Array<EvaluationVerdict>;
-  toolUsage: Record<string, Record<string, number>>;
-  models: Record<string, ModelAggregate>;
-}
-
-function extractMetrics(dbPath: string, runIds: string[]): Metrics | undefined {
+function extractMetrics(dbPath: string, runIds: string[]): ScenarioMetrics | undefined {
   if (!existsSync(dbPath)) return undefined;
 
   let db: DatabaseSync;
