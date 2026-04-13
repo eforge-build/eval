@@ -18,10 +18,10 @@ import { join, resolve } from 'path';
 import { tmpdir } from 'os';
 import { mkdtempSync } from 'fs';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { loadScenarios, deriveGroupId } from './scenarios.js';
+import { loadScenarios, loadVariants, expandScenarioVariants, deriveGroupId } from './scenarios.js';
 import { buildResult, type BuildResultOpts } from './build-result.js';
 import { checkExpectations, type ExpectConfig } from './check-expectations.js';
-import type { ScenarioMeta, ScenarioResult } from './types.js';
+import type { ExpandedScenario, ScenarioResult } from './types.js';
 
 // --- Constants ---
 
@@ -29,6 +29,7 @@ const SCRIPT_DIR = resolve(import.meta.dirname, '..');
 const FIXTURES_DIR = join(SCRIPT_DIR, 'fixtures');
 const RESULTS_DIR = join(SCRIPT_DIR, 'results');
 const SCENARIOS_FILE = join(SCRIPT_DIR, 'scenarios.yaml');
+const VARIANTS_FILE = join(SCRIPT_DIR, 'variants.yaml');
 const MAX_RUNS = 50;
 
 // --- ANSI colors ---
@@ -43,7 +44,7 @@ const RED = '\x1b[31m';
 
 interface RunArgs {
   filters: string[];
-  variantFilter: string;
+  variantNames: string[];
   repeatCount: number;
   compareTimestamp: string;
   envFile: string;
@@ -54,7 +55,7 @@ interface RunArgs {
 function parseArgs(argv: string[]): RunArgs {
   const args: RunArgs = {
     filters: [],
-    variantFilter: '',
+    variantNames: [],
     repeatCount: 1,
     compareTimestamp: '',
     envFile: '',
@@ -92,9 +93,10 @@ function parseArgs(argv: string[]): RunArgs {
         args.all = true;
         i++;
         break;
+      case '--variant':
       case '--variants':
-        if (i + 1 >= rest.length) { console.error('Error: --variants requires a comma-separated list'); process.exit(1); }
-        args.variantFilter = rest[i + 1];
+        if (i + 1 >= rest.length) { console.error('Error: --variant requires a comma-separated list'); process.exit(1); }
+        args.variantNames = rest[i + 1].split(',').map((v) => v.trim());
         i += 2;
         break;
       case '--help':
@@ -110,18 +112,16 @@ function parseArgs(argv: string[]): RunArgs {
 }
 
 function printHelp(): void {
-  console.log(`Usage: run.sh [OPTIONS] SCENARIO_ID [SCENARIO_ID...]
-       run.sh --all [OPTIONS]
+  console.log(`Usage: run.sh --variant NAME[,NAME] [OPTIONS] SCENARIO_ID [SCENARIO_ID...]
+       run.sh --variant NAME[,NAME] --all [OPTIONS]
 
-Runs eval scenarios. At least one scenario ID is required (or --all).
-Scenario IDs support prefix matching: 'todo-api-errand-health-check'
-runs all variants of that base scenario.
-
-Variants within the same compare group run in parallel.
+Runs eval scenarios with the specified config variant(s).
+Scenarios are defined in scenarios.yaml, variants in variants.yaml.
+When multiple variants are specified, they run in parallel for each scenario.
 
 Options:
+  --variant LIST         Comma-separated variant names to run (required, e.g. claude-sdk,pi-codex)
   --all                  Run all scenarios
-  --variants LIST        Comma-separated variant labels to include (e.g. claude-sdk,pi-codex)
   --dry-run              Set up workspaces but skip eforge and validation
   --env-file FILE        Source environment variables (e.g. Langfuse credentials)
   --repeat N             Run each scenario N times (default: 1)
@@ -213,68 +213,35 @@ function loadEnvFile(filePath: string): Record<string, string> {
 
 // --- Filtering ---
 
-function filterScenarios(
-  scenarios: ScenarioMeta[],
+function filterExpandedScenarios(
+  expanded: ExpandedScenario[],
   filters: string[],
-  variantFilter: string,
   all: boolean,
-): ScenarioMeta[] {
-  let filtered = scenarios;
-
-  // Filter by scenario ID
-  if (!all) {
-    filtered = filtered.filter((s) =>
-      filters.some((f) => s.id === f || s.id.startsWith(f + '--')),
-    );
-  }
-
-  // Filter by variant label
-  if (variantFilter) {
-    const labels = variantFilter.split(',');
-    filtered = filtered.filter((s) => {
-      if (!s.id.includes('--')) return true; // non-matrix scenarios pass through
-      const variantLabel = s.id.split('--').pop()!;
-      return labels.includes(variantLabel);
-    });
-  }
-
-  return filtered;
-}
-
-function validateVariantFilter(scenarios: ScenarioMeta[], variantFilter: string): void {
-  if (!variantFilter) return;
-  const available = new Set(
-    scenarios
-      .map((s) => (s.id.includes('--') ? s.id.split('--').pop()! : null))
-      .filter(Boolean) as string[],
+): ExpandedScenario[] {
+  if (all) return expanded;
+  return expanded.filter((e) =>
+    filters.some((f) => e.id === f || e.scenario.id === f || e.id.startsWith(f + '--')),
   );
-  const requested = variantFilter.split(',');
-  const invalid = requested.filter((v) => !available.has(v));
-  if (invalid.length > 0) {
-    console.error(`Error: Unknown variant(s): ${invalid.join(', ')}`);
-    console.error(`Available variants: ${[...available].join(',')}`);
-    process.exit(1);
-  }
 }
 
 // --- Grouping for parallel execution ---
 
 interface ScenarioGroup {
   groupId: string;
-  scenarios: ScenarioMeta[];
+  scenarios: ExpandedScenario[];
 }
 
-function groupByCompareGroup(scenarios: ScenarioMeta[]): ScenarioGroup[] {
-  const groupMap = new Map<string, ScenarioMeta[]>();
+function groupByCompareGroup(expanded: ExpandedScenario[]): ScenarioGroup[] {
+  const groupMap = new Map<string, ExpandedScenario[]>();
   const groupOrder: string[] = [];
 
-  for (const s of scenarios) {
-    const groupId = deriveGroupId(s);
+  for (const e of expanded) {
+    const groupId = deriveGroupId(e);
     if (!groupMap.has(groupId)) {
       groupMap.set(groupId, []);
       groupOrder.push(groupId);
     }
-    groupMap.get(groupId)!.push(s);
+    groupMap.get(groupId)!.push(e);
   }
 
   return groupOrder.map((groupId) => ({
@@ -312,7 +279,7 @@ async function startMonitor(eforgeBin: string): Promise<string | undefined> {
 
 // --- Config overlay ---
 
-function applyConfigOverlay(workspace: string, overlay: ScenarioMeta['configOverlay']): void {
+function applyConfigOverlay(workspace: string, overlay: ExpandedScenario['variant']['configOverlay']): void {
   if (!overlay || Object.keys(overlay).length === 0) return;
   const eforgeDir = join(workspace, 'eforge');
   mkdirSync(eforgeDir, { recursive: true });
@@ -425,7 +392,7 @@ function spawnEforge(
 // --- Single scenario runner ---
 
 interface ScenarioRunOpts {
-  scenario: ScenarioMeta;
+  expanded: ExpandedScenario;
   scenarioDir: string;
   eforgeBin: string;
   eforgeVersion: string;
@@ -445,8 +412,9 @@ interface ScenarioRunResult {
 }
 
 async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
-  const { scenario, scenarioDir, eforgeBin, eforgeVersion, eforgeCommit, monitorDbPath, dryRun, globalEnvVars, parallel } = opts;
-  const label = scenario.variantLabel ?? scenario.id;
+  const { expanded, scenarioDir, eforgeBin, eforgeVersion, eforgeCommit, monitorDbPath, dryRun, globalEnvVars, parallel } = opts;
+  const { scenario, variant } = expanded;
+  const label = variant.name;
   const prefix = parallel ? `${DIM}[${label}]${RESET} ` : '';
   const log = (msg: string) => console.log(`${prefix}${msg}`);
 
@@ -456,20 +424,20 @@ async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
   const fixtureDir = join(FIXTURES_DIR, scenario.fixture);
   if (!existsSync(fixtureDir)) {
     log(`  ${RED}ERROR${RESET}: Fixture not found: ${fixtureDir}`);
-    writeErrorResult(scenarioDir, scenario.id, eforgeVersion, eforgeCommit, startTime, `Fixture directory not found: ${scenario.fixture}`);
-    return { scenario: scenario.id, passed: false };
+    writeErrorResult(scenarioDir, expanded.id, eforgeVersion, eforgeCommit, startTime, `Fixture directory not found: ${scenario.fixture}`);
+    return { scenario: expanded.id, passed: false };
   }
 
   // Step 2: Copy fixture to workspace
-  const workspace = mkdtempSync(join(tmpdir(), `eforge-eval-${scenario.id}-`));
+  const workspace = mkdtempSync(join(tmpdir(), `eforge-eval-${expanded.id}-`));
   log(`  Copying fixture '${scenario.fixture}' to workspace...`);
   cpSync(fixtureDir, workspace, { recursive: true });
   writeFileSync(join(scenarioDir, 'workspace-path.txt'), workspace);
 
-  // Step 2b: Apply config overlay
-  if (scenario.configOverlay && Object.keys(scenario.configOverlay).length > 0) {
-    log('  Applying config overlay...');
-    applyConfigOverlay(workspace, scenario.configOverlay);
+  // Step 2b: Apply variant config overlay
+  if (variant.configOverlay && Object.keys(variant.configOverlay).length > 0) {
+    log(`  Applying variant '${variant.name}' config overlay...`);
+    applyConfigOverlay(workspace, variant.configOverlay);
   }
 
   // Step 2c: Init git
@@ -478,23 +446,23 @@ async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
     cwd: workspace,
     stdio: 'pipe',
   });
-  execSync(`git checkout --quiet -b "eval/${scenario.id}"`, { cwd: workspace, stdio: 'pipe' });
+  execSync(`git checkout --quiet -b "eval/${expanded.id}"`, { cwd: workspace, stdio: 'pipe' });
 
   // Step 3: Build environment for eforge
   const envOverrides: Record<string, string> = { ...globalEnvVars };
   envOverrides['EFORGE_MONITOR_DB'] = monitorDbPath;
-  envOverrides['EFORGE_TRACE_TAGS'] = `eval,${scenario.id}`;
+  envOverrides['EFORGE_TRACE_TAGS'] = `eval,${expanded.id}`;
 
-  // Source per-scenario env file
-  if (scenario.envFile) {
-    const envFilePath = join(SCRIPT_DIR, scenario.envFile);
+  // Source variant env file
+  if (variant.envFile) {
+    const envFilePath = join(SCRIPT_DIR, variant.envFile);
     if (!existsSync(envFilePath)) {
-      log(`  ${RED}ERROR${RESET}: Scenario env file not found: ${scenario.envFile}`);
-      writeErrorResult(scenarioDir, scenario.id, eforgeVersion, eforgeCommit, startTime, `Scenario env file not found: ${scenario.envFile}`);
+      log(`  ${RED}ERROR${RESET}: Variant env file not found: ${variant.envFile}`);
+      writeErrorResult(scenarioDir, expanded.id, eforgeVersion, eforgeCommit, startTime, `Variant env file not found: ${variant.envFile}`);
       cleanupWorkspace(workspace);
-      return { scenario: scenario.id, passed: false };
+      return { scenario: expanded.id, passed: false };
     }
-    log(`  Sourcing env file: ${scenario.envFile}`);
+    log(`  Sourcing env file: ${variant.envFile}`);
     Object.assign(envOverrides, loadEnvFile(envFilePath));
   }
 
@@ -539,10 +507,10 @@ async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
     // Log may not exist if eforge failed to start
   }
 
-  // Step 6: Build result.json
+  // Step 6: Build result.json (includes variant config)
   const result = buildResult({
     outputFile: join(scenarioDir, 'result.json'),
-    scenario: scenario.id,
+    scenario: expanded.id,
     eforgeVersion,
     eforgeCommit,
     exitCode: eforgeExit,
@@ -550,6 +518,11 @@ async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
     logFile,
     validation,
     monitorDbPath,
+    variant: {
+      name: variant.name,
+      configOverlay: variant.configOverlay as Record<string, unknown>,
+      envFile: variant.envFile,
+    },
   });
 
   // Step 7: Check expectations
@@ -562,7 +535,12 @@ async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
       monitorDbPath,
       runIds,
     });
-    log(`  Expectations: ${expectResult.passed ? `${GREEN}PASS${RESET}` : `${RED}FAIL${RESET}`}`);
+    if (expectResult.passed) {
+      log(`  Expectations: ${GREEN}all matched${RESET}`);
+    } else {
+      const mismatches = expectResult.checks.filter(c => !c.passed).map(c => c.check);
+      log(`  Expectations: ${DIM}mismatched (${mismatches.join(', ')})${RESET}`);
+    }
   }
 
   // Re-read result after expectations were written
@@ -576,7 +554,7 @@ async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
   // Cleanup workspace
   cleanupWorkspace(workspace);
 
-  return { scenario: scenario.id, passed: isScenarioPassed(finalResult), result: finalResult };
+  return { scenario: expanded.id, passed: isScenarioPassed(finalResult), result: finalResult };
 }
 
 function writeErrorResult(scenarioDir: string, id: string, eforgeVersion: string, eforgeCommit: string, startTime: number, error: string): void {
@@ -616,7 +594,7 @@ async function runScenarioWithRepeats(
     return runScenario(opts);
   }
 
-  const { scenario, scenarioDir, eforgeBin, eforgeVersion, eforgeCommit, monitorDbPath, dryRun, globalEnvVars, parallel } = opts;
+  const { expanded, scenarioDir, eforgeBin, eforgeVersion, eforgeCommit, monitorDbPath, dryRun, globalEnvVars, parallel } = opts;
   let runPassed = 0;
 
   for (let i = 1; i <= repeatCount; i++) {
@@ -662,7 +640,7 @@ async function runScenarioWithRepeats(
   }
 
   const aggregate = {
-    scenario: scenario.id,
+    scenario: expanded.id,
     timestamp: new Date().toISOString(),
     eforgeVersion,
     eforgeCommit,
@@ -682,7 +660,7 @@ async function runScenarioWithRepeats(
 
   console.log(`  Pass rate: ${runPassed}/${repeatCount}`);
   return {
-    scenario: scenario.id,
+    scenario: expanded.id,
     passed: runPassed === repeatCount,
     passRate: runs.length > 0 ? runPassed / runs.length : 0,
     repeatCount,
@@ -959,11 +937,27 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Load all scenarios
+  // Load scenarios and variants
   const allScenarios = loadScenarios(SCENARIOS_FILE);
+  const allVariants = loadVariants(VARIANTS_FILE);
 
-  // Validate --variants
-  validateVariantFilter(allScenarios, args.variantFilter);
+  // Require --variant
+  if (args.variantNames.length === 0) {
+    console.error('Error: --variant is required. Specify one or more variant names.');
+    console.error(`Available variants: ${allVariants.map((v) => v.name).join(', ')}`);
+    process.exit(1);
+  }
+
+  // Validate --variant names
+  const invalidVariants = args.variantNames.filter((n) => !allVariants.some((v) => v.name === n));
+  if (invalidVariants.length > 0) {
+    console.error(`Error: Unknown variant(s): ${invalidVariants.join(', ')}`);
+    console.error(`Available variants: ${allVariants.map((v) => v.name).join(', ')}`);
+    process.exit(1);
+  }
+
+  // Filter variants to requested names
+  const selectedVariants = allVariants.filter((v) => args.variantNames.includes(v.name));
 
   // Validate --compare
   if (args.compareTimestamp) {
@@ -1017,16 +1011,18 @@ async function main(): Promise<void> {
 
   console.log('Eforge Eval Run');
   console.log(`  Version: ${eforgeVersion}`);
+  console.log(`  Variants: ${selectedVariants.map((v) => v.name).join(', ')}`);
   console.log(`  Results: ${runDir}`);
   if (monitorUrl) {
     console.log(`  Monitor: ${monitorUrl}`);
   }
   console.log('');
 
-  // Filter scenarios
-  const scenarios = filterScenarios(allScenarios, args.filters, args.variantFilter, args.all);
+  // Cross-product scenarios with variants and filter
+  const allExpanded = expandScenarioVariants(allScenarios, selectedVariants);
+  const expanded = filterExpandedScenarios(allExpanded, args.filters, args.all);
 
-  if (scenarios.length === 0) {
+  if (expanded.length === 0) {
     if (args.filters.length > 0) {
       console.error(`Error: No scenarios found matching: ${args.filters.join(' ')}`);
     } else {
@@ -1036,7 +1032,7 @@ async function main(): Promise<void> {
   }
 
   // Group for parallel execution
-  const groups = groupByCompareGroup(scenarios);
+  const groups = groupByCompareGroup(expanded);
 
   let total = 0;
   let passed = 0;
@@ -1049,33 +1045,34 @@ async function main(): Promise<void> {
     }
 
     // Print scenario headers
-    for (const s of group.scenarios) {
+    for (const e of group.scenarios) {
       if (!isParallel) {
-        console.log(`${BOLD}━━━ Scenario: ${s.id} ━━━${RESET}`);
-        console.log(`  ${s.description ?? ''}`);
-        console.log(`  Fixture: ${s.fixture}`);
-        console.log(`  PRD: ${s.prd}`);
+        console.log(`${BOLD}━━━ Scenario: ${e.id} ━━━${RESET}`);
+        console.log(`  ${e.scenario.description ?? ''}`);
+        console.log(`  Fixture: ${e.scenario.fixture}`);
+        console.log(`  PRD: ${e.scenario.prd}`);
+        console.log(`  Variant: ${e.variant.name}`);
         if (args.repeatCount > 1) console.log(`  Repeats: ${args.repeatCount}`);
         console.log('');
       }
     }
 
     if (isParallel) {
-      for (const s of group.scenarios) {
-        console.log(`  ${DIM}[${s.variantLabel ?? s.id}]${RESET} ${s.description ?? ''} (${s.fixture} / ${s.prd})`);
+      for (const e of group.scenarios) {
+        console.log(`  ${DIM}[${e.variant.name}]${RESET} ${e.scenario.description ?? ''} (${e.scenario.fixture} / ${e.scenario.prd})`);
       }
       console.log('');
     }
 
     // Run variants in parallel (or single if only one)
-    const promises = group.scenarios.map((s) => {
+    const promises = group.scenarios.map((e) => {
       total++;
-      const scenarioDir = join(runDir, s.id);
+      const scenarioDir = join(runDir, e.id);
       mkdirSync(scenarioDir, { recursive: true });
 
       return runScenarioWithRepeats(
         {
-          scenario: s,
+          expanded: e,
           scenarioDir,
           eforgeBin,
           eforgeVersion,
@@ -1120,7 +1117,7 @@ async function main(): Promise<void> {
   console.log('');
   console.log('Running variant comparison...');
   try {
-    execSync(`npx tsx "${join(SCRIPT_DIR, 'lib', 'compare.ts')}" "${runDir}" "${SCENARIOS_FILE}"`, {
+    execSync(`npx tsx "${join(SCRIPT_DIR, 'lib', 'compare.ts')}" "${runDir}"`, {
       cwd: SCRIPT_DIR,
       stdio: 'inherit',
     });

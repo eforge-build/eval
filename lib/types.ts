@@ -70,6 +70,7 @@ export interface ExpectationCheck {
 
 export interface ScenarioResult {
   scenario: string;
+  variant?: { name: string; configOverlay: Record<string, unknown>; envFile?: string };
   timestamp: string;
   eforgeVersion: string;
   eforgeCommit: string;
@@ -125,10 +126,13 @@ export interface ScenarioMeta {
     buildStagesExclude?: string[];
     skip?: boolean;
   };
-  envFile?: string;
-  variantLabel?: string;
-  compareGroup?: string;
-  configOverlay?: {
+}
+
+// --- Variant types ---
+
+export interface VariantDef {
+  name: string;
+  configOverlay: {
     backend?: string;
     agents?: {
       models?: {
@@ -140,11 +144,11 @@ export interface ScenarioMeta {
     };
     [key: string]: unknown;
   };
-  matrix?: Array<{
-    variantLabel: string;
-    configOverlay?: ScenarioMeta['configOverlay'];
-    envFile?: string;
-    expect?: ScenarioMeta['expect'];
-    validate?: string[];
-  }>;
+  envFile?: string;
+}
+
+export interface ExpandedScenario {
+  id: string;              // e.g. "todo-api-errand-health-check--claude-sdk"
+  scenario: ScenarioMeta;  // the base scenario
+  variant: VariantDef;     // the variant applied
 }

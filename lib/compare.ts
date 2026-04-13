@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 // Side-by-side variant comparison engine for eval runs.
-// Usage: npx tsx lib/compare.ts <run-dir> <scenarios-yaml-path>
+// Usage: npx tsx lib/compare.ts <run-dir>
 //
 // Groups scenarios by fixture+PRD, compares variants across eight dimensions,
 // writes comparison.json and prints a human-readable table.
@@ -9,10 +9,8 @@ import { readFileSync, writeFileSync, readdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import {
   type ScenarioResult,
-  type ScenarioMeta,
   type AgentAggregate,
 } from './types.js';
-import { loadScenarios, deriveGroupId, deriveVariantLabel } from './scenarios.js';
 
 // --- Comparison types ---
 
@@ -112,15 +110,8 @@ interface VariantEntry {
 
 function groupVariants(
   runDir: string,
-  scenarios: ScenarioMeta[],
 ): Map<string, { fixture: string; prd: string; variants: VariantEntry[] }> {
   const groups = new Map<string, { fixture: string; prd: string; variants: VariantEntry[] }>();
-
-  // Build a map from scenario ID to ScenarioMeta
-  const metaById = new Map<string, ScenarioMeta>();
-  for (const s of scenarios) {
-    metaById.set(s.id, s);
-  }
 
   // Read all result.json files from subdirectories
   if (!existsSync(runDir)) return groups;
@@ -139,16 +130,16 @@ function groupVariants(
     }
 
     const scenarioId = result.scenario;
-    const meta = metaById.get(scenarioId);
-    if (!meta) continue;
+    // Derive the base scenario ID and variant label from the expanded ID
+    const separatorIdx = scenarioId.indexOf('--');
+    if (separatorIdx === -1) continue; // no variant suffix — skip
+    const baseId = scenarioId.slice(0, separatorIdx);
+    const label = result.variant?.name ?? scenarioId.slice(separatorIdx + 2);
 
-    const groupId = deriveGroupId(meta);
-    const label = deriveVariantLabel(meta);
-
-    if (!groups.has(groupId)) {
-      groups.set(groupId, { fixture: meta.fixture, prd: meta.prd, variants: [] });
+    if (!groups.has(baseId)) {
+      groups.set(baseId, { fixture: '', prd: '', variants: [] });
     }
-    groups.get(groupId)!.variants.push({ label, result });
+    groups.get(baseId)!.variants.push({ label, result });
   }
 
   // Remove groups with fewer than 2 variants
@@ -494,15 +485,13 @@ function printComparisonTable(report: ComparisonReport): void {
 
 function main(): void {
   const runDir = process.argv[2];
-  const scenariosPath = process.argv[3];
 
-  if (!runDir || !scenariosPath) {
-    console.error('Usage: npx tsx lib/compare.ts <run-dir> <scenarios-yaml-path>');
+  if (!runDir) {
+    console.error('Usage: npx tsx lib/compare.ts <run-dir>');
     process.exit(1);
   }
 
-  const scenarios = loadScenarios(scenariosPath);
-  const groups = groupVariants(runDir, scenarios);
+  const groups = groupVariants(runDir);
 
   if (groups.size === 0) {
     // No groups with ≥2 variants — exit silently

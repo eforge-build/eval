@@ -15,33 +15,41 @@ End-to-end evaluation harness for [eforge](https://github.com/eforge-build/eforg
 ## Commands
 
 ```bash
-pnpm install                          # Install dependencies
-pnpm type-check                       # TypeScript type-check (lib/**/*.ts)
-./run.sh                              # Run all scenarios
-./run.sh <scenario-id>                # Run a single scenario by ID
-./run.sh --dry-run                    # Set up workspaces without running eforge
-./run.sh --env-file .env              # Source env vars (e.g. Langfuse credentials)
-./run.sh --cleanup                    # Remove all results
+pnpm install                                              # Install dependencies
+pnpm type-check                                           # TypeScript type-check (lib/**/*.ts)
+./run.sh --variant claude-sdk --all                       # Run all scenarios with claude-sdk
+./run.sh --variant claude-sdk <scenario-id>               # Run a single scenario
+./run.sh --variant claude-sdk,pi-nemotron <scenario-id>   # Run with multiple variants (parallel)
+./run.sh --variant claude-sdk --dry-run                   # Set up workspaces without running eforge
+./run.sh --variant claude-sdk --env-file .env             # Source env vars (e.g. Langfuse credentials)
+./run.sh --cleanup                                        # Remove all results
 ```
 
 ## Architecture
 
-The harness is a bash-driven pipeline with TypeScript helpers for structured result building:
+The harness is a TypeScript pipeline:
 
-1. **`run.sh`** — Entry point. Parses `scenarios.yaml` via `npx tsx`, iterates scenarios, writes `results/<timestamp>/summary.json`, prints a summary table.
-2. **`lib/run-scenario.sh`** — Sourced by `run.sh`. Per-scenario logic: copies fixture to `/tmp/`, inits a git repo, runs `eforge run <prd> --auto --verbose --foreground --no-monitor`, runs validation commands, preserves `orchestration.yaml`.
-3. **`lib/build-result.ts`** — Builds `result.json` from eforge logs and the shared SQLite monitor DB (`results/monitor.db`). Extracts token usage, cost, phase durations, per-agent/per-model breakdowns, and review metrics from monitor events.
-4. **`lib/check-expectations.ts`** — Checks scenario expectations (mode, build stages, skip) against `orchestration.yaml` and monitor DB. Writes an `expectations` key into `result.json`.
+1. **`run.sh`** — Thin wrapper that delegates to `npx tsx lib/runner.ts`.
+2. **`scenarios.yaml`** — Defines **what to build**: fixture, PRD, validation commands, and behavioral expectations. Contains no backend/variant configuration.
+3. **`variants.yaml`** — Defines **how to build**: named config variants with `configOverlay` (backend, model) and optional `envFile`. Applied at run time via `--variant`.
+4. **`lib/runner.ts`** — Main orchestrator. Cross-products scenarios with selected variants, groups variants of the same scenario for parallel execution, runs eforge, validates, and checks expectations.
+5. **`lib/build-result.ts`** — Builds `result.json` from eforge logs and the shared SQLite monitor DB (`results/monitor.db`). Extracts token usage, cost, phase durations, per-agent/per-model breakdowns, review metrics, and the variant config used.
+6. **`lib/check-expectations.ts`** — Checks scenario expectations (mode, build stages, skip) against monitor DB. Writes an `expectations` key into `result.json`.
+7. **`lib/compare.ts`** — Side-by-side variant comparison across eight dimensions (cost, tokens, duration, etc.).
 
 ### Data flow
 
 ```
-scenarios.yaml → run.sh → run_scenario() → eforge (in /tmp workspace)
-                                          → validation commands
-                                          → build-result.ts (reads monitor.db)
-                                          → check-expectations.ts (reads orchestration.yaml)
-                                          → results/<timestamp>/<scenario>/result.json
-                           → summary.json
+scenarios.yaml ─┐
+                 ├─► runner.ts ─► cross-product ─► for each (scenario, variant):
+variants.yaml ──┘                                    ├─ copy fixture to /tmp
+                                                     ├─ apply variant configOverlay
+                                                     ├─ eforge run <prd>
+                                                     ├─ validation commands
+                                                     ├─ build-result.ts (reads monitor.db)
+                                                     ├─ check-expectations.ts
+                                                     └─ results/<timestamp>/<id>/result.json
+                                                  ─► summary.json + comparison.json
 ```
 
 ### Fixtures
@@ -59,4 +67,4 @@ Scenarios can define `expect` in `scenarios.yaml` to assert behavioral propertie
 
 ### Results
 
-Results are gitignored. Each run creates `results/<timestamp>/` containing per-scenario `result.json`, `eforge.log`, validation logs, and an aggregate `summary.json`. Old runs are pruned to keep the most recent 50.
+Results are gitignored. Each run creates `results/<timestamp>/` containing per-scenario `result.json`, `eforge.log`, validation logs, and an aggregate `summary.json`. Old runs are pruned to keep the most recent 50. Each `result.json` includes the full variant config used for reproducibility.

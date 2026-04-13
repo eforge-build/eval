@@ -1,0 +1,46 @@
+# Config variants for eval runs.
+# Each variant defines a backend/model configuration that can be
+# applied to any scenario via --variant on the CLI.
+
+variants:
+  claude-sdk:
+    configOverlay:
+      backend: claude-sdk
+
+  pi-nemotron:
+    envFile: env/pi.env
+    configOverlay:
+      backend: pi
+      agents:
+        models:
+          max:
+            provider: openrouter
+            id: nvidia/nemotron-3-super-120b-a12b:free
+
+  pi-codex:
+    configOverlay:
+      backend: pi
+      agents:
+        models:
+          max:
+            provider: openai-codex
+            id: gpt-5.4
+
+  pi-glm:
+    envFile: env/pi.env
+    configOverlay:
+      backend: pi
+      agents:
+        models:
+          max:
+            provider: openrouter
+            id: z-ai/glm-5.1
+
+  pi-gemma4:
+    configOverlay:
+      backend: pi
+      agents:
+        models:
+          max:
+            provider: llama-cpp
+            id: gemma-4

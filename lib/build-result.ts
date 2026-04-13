@@ -17,6 +17,7 @@ export interface BuildResultOpts {
   logFile: string;
   validation: Record<string, { exitCode: number; passed: boolean }>;
   monitorDbPath?: string;
+  variant?: { name: string; configOverlay: Record<string, unknown>; envFile?: string };
 }
 
 function extractMetrics(dbPath: string, runIds: string[]): ScenarioMetrics | undefined {
@@ -254,7 +255,7 @@ function extractMetrics(dbPath: string, runIds: string[]): ScenarioMetrics | und
  * Returns the result object.
  */
 export function buildResult(opts: BuildResultOpts): ScenarioResult {
-  const { outputFile, scenario, eforgeVersion, eforgeCommit, exitCode, duration, logFile, validation, monitorDbPath } = opts;
+  const { outputFile, scenario, eforgeVersion, eforgeCommit, exitCode, duration, logFile, validation, monitorDbPath, variant } = opts;
 
   // Parse the eforge log to extract run IDs and Langfuse trace ID
   let langfuseTraceId: string | undefined;
@@ -271,6 +272,7 @@ export function buildResult(opts: BuildResultOpts): ScenarioResult {
 
   const result: Record<string, unknown> = {
     scenario,
+    ...(variant && { variant }),
     timestamp: new Date().toISOString(),
     eforgeVersion,
     eforgeCommit,

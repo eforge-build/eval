@@ -2,9 +2,8 @@
 # Each scenario defines a fixture + PRD to run eforge against.
 # Fixtures live in eval/fixtures/<fixture>/ as plain project files (no .git).
 #
-# Matrix: scenarios with a `matrix` field expand into one scenario per variant.
-# Generated IDs follow the pattern: <base-id>--<variantLabel>.
-# All variants in a matrix share a compareGroup for side-by-side comparison.
+# Variants (backend/model configs) are defined separately in variants.yaml
+# and applied at run time via --variant on the CLI.
 
 scenarios:
   # --- todo-api ---
@@ -13,243 +12,107 @@ scenarios:
     fixture: todo-api
     prd: docs/add-health-check.md
     description: "Add GET /health endpoint to Express API"
+    validate:
+      - pnpm install
+      - pnpm type-check
+      - pnpm test
+      - test -f .eforge/hook-events.log && grep -q EFORGE_CWD .eforge/hook-events.log
     expect:
       mode: errand
       buildStagesExclude:
         - test-cycle
-    matrix:
-      - variantLabel: claude-sdk
-        validate:
-          - pnpm install
-          - pnpm type-check
-          - pnpm test
-          - test -f .eforge/hook-events.log && grep -q EFORGE_CWD .eforge/hook-events.log
-        configOverlay:
-          backend: claude-sdk
-      - variantLabel: pi-nemotron
-        validate:
-          - pnpm install
-          - pnpm type-check
-          - pnpm test
-          - test -f .eforge/hook-events.log && grep -q EFORGE_CWD .eforge/hook-events.log
-          - test -f .pi-extension-loaded
-        envFile: env/pi.env
-        configOverlay:
-          backend: pi
-          agents:
-            models:
-              max:
-                provider: openrouter
-                id: nvidia/nemotron-3-super-120b-a12b:free
-      - variantLabel: pi-codex
-        validate:
-          - pnpm install
-          - pnpm type-check
-          - pnpm test
-          - test -f .eforge/hook-events.log && grep -q EFORGE_CWD .eforge/hook-events.log
-        configOverlay:
-          backend: pi
-          agents:
-            models:
-              max:
-                provider: openai-codex
-                id: gpt-5.4
-      - variantLabel: pi-glm
-        validate:
-          - pnpm install
-          - pnpm type-check
-          - pnpm test
-          - test -f .eforge/hook-events.log && grep -q EFORGE_CWD .eforge/hook-events.log
-          - test -f .pi-extension-loaded
-        envFile: env/pi.env
-        configOverlay:
-          backend: pi
-          agents:
-            models:
-              max:
-                provider: openrouter
-                id: z-ai/glm-5.1
-      - variantLabel: pi-gemma4
-        validate:
-          - pnpm install
-          - pnpm type-check
-          - pnpm test
-          - test -f .eforge/hook-events.log && grep -q EFORGE_CWD .eforge/hook-events.log
-        configOverlay:
-          backend: pi
-          agents:
-            models:
-              max:
-                provider: llama-cpp
-                id: gemma-4
 
   - id: todo-api-excursion-jwt-auth
     fixture: todo-api
     prd: docs/add-jwt-auth.md
+    description: "Add JWT auth middleware + protected routes"
     validate:
       - pnpm install
       - pnpm type-check
       - pnpm test
-    description: "Add JWT auth middleware + protected routes"
     expect:
       mode: excursion
-    matrix:
-      - variantLabel: claude-sdk
-        configOverlay:
-          backend: claude-sdk
-      - variantLabel: pi-nemotron
-        envFile: env/pi.env
-        configOverlay:
-          backend: pi
-          agents:
-            models:
-              max:
-                provider: openrouter
-                id: nvidia/nemotron-3-super-120b-a12b:free
 
   - id: todo-api-errand-skip
     fixture: todo-api
     prd: docs/skip-already-done.md
+    description: "PRD describes what db.ts already implements - should skip"
     validate:
       - pnpm install
       - pnpm type-check
       - pnpm test
-    description: "PRD describes what db.ts already implements - should skip"
     expect:
       mode: errand
       skip: true
-    matrix:
-      - variantLabel: claude-sdk
-        configOverlay:
-          backend: claude-sdk
-      - variantLabel: pi-nemotron
-        envFile: env/pi.env
-        configOverlay:
-          backend: pi
-          agents:
-            models:
-              max:
-                provider: openrouter
-                id: nvidia/nemotron-3-super-120b-a12b:free
 
   # --- workspace-api ---
 
   - id: workspace-api-excursion-engagement
     fixture: workspace-api
     prd: docs/add-engagement-features.md
+    description: "Add reactions, threads, and pins to workspace API (expedition, parallel modules)"
     validate:
       - pnpm install
       - pnpm type-check
       - pnpm test
-    description: "Add reactions, threads, and pins to workspace API (expedition, parallel modules)"
     expect:
       mode: excursion
-    matrix:
-      - variantLabel: claude-sdk
-        configOverlay:
-          backend: claude-sdk
-      - variantLabel: pi-nemotron
-        envFile: env/pi.env
-        configOverlay:
-          backend: pi
-          agents:
-            models:
-              max:
-                provider: openrouter
-                id: nvidia/nemotron-3-super-120b-a12b:free
 
   - id: workspace-api-expedition-extensions
     fixture: workspace-api
     prd: docs/add-extension-modules.md
+    description: "Add bookmarks, categories, and activity modules - 3 independent verticals"
     validate:
       - pnpm install
       - pnpm type-check
       - pnpm test
-    description: "Add bookmarks, categories, and activity modules - 3 independent verticals"
     expect:
       mode: expedition
-    configOverlay:
-      backend: claude-sdk
 
   # --- notes-api ---
 
   - id: notes-api-errand-update-docs
     fixture: notes-api
     prd: docs/prd/update-docs.md
+    description: "Fix stale README and API reference - docs only, no code changes"
     validate:
       - pnpm install
       - pnpm type-check
       - pnpm test
-    description: "Fix stale README and API reference - docs only, no code changes"
     expect:
       mode: errand
-    configOverlay:
-      backend: claude-sdk
 
   - id: notes-api-excursion-refactor-store
     fixture: notes-api
     prd: docs/prd/refactor-store.md
+    description: "Extract generic EntityStore from duplicated CRUD patterns in store.ts"
     validate:
       - pnpm install
       - pnpm type-check
       - pnpm test
-    description: "Extract generic EntityStore from duplicated CRUD patterns in store.ts"
     expect:
       mode: excursion
-    configOverlay:
-      backend: claude-sdk
 
   - id: notes-api-excursion-dead-code
     fixture: notes-api
     prd: docs/prd/dead-code-cleanup.md
+    description: "Remove src/legacy/, formatCsv(), and validateCsvRow() dead code"
     validate:
       - pnpm install
       - pnpm type-check
       - pnpm test
-    description: "Remove src/legacy/, formatCsv(), and validateCsvRow() dead code"
     expect:
       mode: excursion
-    configOverlay:
-      backend: claude-sdk
 
   - id: notes-api-excursion-search
     fixture: notes-api
     prd: docs/prd/add-search.md
+    description: "Add GET /notes/search?q= with test coverage"
     validate:
       - pnpm install
       - pnpm type-check
       - pnpm test
-    description: "Add GET /notes/search?q= with test coverage"
     expect:
       mode: excursion
       buildStagesContain:
         - test-cycle
-    matrix:
-      - variantLabel: claude-sdk
-        configOverlay:
-          backend: claude-sdk
-      - variantLabel: pi-nemotron
-        envFile: env/pi.env
-        configOverlay:
-          backend: pi
-          agents:
-            models:
-              max:
-                provider: openrouter
-                id: nvidia/nemotron-3-super-120b-a12b:free
-      - variantLabel: pi-codex
-        configOverlay:
-          backend: pi
-          agents:
-            models:
-              max:
-                provider: openai-codex
-                id: gpt-5.4
-      - variantLabel: pi-gemma4
-        configOverlay:
-          backend: pi
-          agents:
-            models:
-              max:
-                provider: llama-cpp
-                id: gemma-4

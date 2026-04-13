@@ -8,12 +8,13 @@ import { z } from 'zod';
 import { spawn } from 'child_process';
 import { readFileSync, readdirSync, existsSync } from 'fs';
 import { join, resolve } from 'path';
-import { loadScenarios } from '../lib/scenarios.js';
+import { loadScenarios, loadVariants } from '../lib/scenarios.js';
 
 const PROJECT_ROOT = resolve(import.meta.dirname, '..');
 const RESULTS_DIR = join(PROJECT_ROOT, 'results');
 const RUN_SCRIPT = join(PROJECT_ROOT, 'run.sh');
 const SCENARIOS_FILE = join(PROJECT_ROOT, 'scenarios.yaml');
+const VARIANTS_FILE = join(PROJECT_ROOT, 'variants.yaml');
 const DAEMON_LOCK = join(PROJECT_ROOT, '.eforge', 'daemon.lock');
 
 const server = new McpServer({
@@ -51,27 +52,39 @@ server.tool(
   },
 );
 
+// --- Tool: eval_variants ---
+server.tool(
+  'eval_variants',
+  'List available config variants from variants.yaml.',
+  {},
+  async () => {
+    const variants = loadVariants(VARIANTS_FILE).map((v) => ({
+      name: v.name,
+      configOverlay: v.configOverlay,
+      envFile: v.envFile,
+    }));
+    return { content: [{ type: 'text', text: JSON.stringify(variants) }] };
+  },
+);
+
 // --- Tool: eval_run ---
 server.tool(
   'eval_run',
   'Spawn an eval run. Returns immediately with a runId (timestamp). Use eval_run_status to check completion.',
   {
     scenarios: z.array(z.string()).optional().describe('Optional list of scenario IDs to run (prefix match supported)'),
-    variants: z.string().optional().describe('Comma-separated variant labels to include (e.g. "claude-sdk,pi-codex")'),
+    variant: z.string().describe('Comma-separated variant names to run (e.g. "claude-sdk" or "claude-sdk,pi-codex")'),
     repeat: z.number().optional().describe('Number of times to repeat each scenario'),
     compare: z.string().optional().describe('Timestamp of a previous run to compare against'),
   },
-  async ({ scenarios, variants, repeat, compare }) => {
-    const args: string[] = [];
+  async ({ scenarios, variant, repeat, compare }) => {
+    const args: string[] = ['--variant', variant];
 
     if (repeat && repeat > 1) {
       args.push('--repeat', String(repeat));
     }
     if (compare) {
       args.push('--compare', compare);
-    }
-    if (variants) {
-      args.push('--variants', variants);
     }
     if (scenarios && scenarios.length > 0) {
       args.push(...scenarios);
