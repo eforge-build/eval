@@ -7,6 +7,24 @@ variants:
     configOverlay:
       backend: claude-sdk
 
+  claude-sdk-balanced:
+    configOverlay:
+      backend: claude-sdk
+      agents:
+        roles:
+          builder:
+            modelClass: balanced
+          tester:
+            modelClass: balanced
+          test-writer:
+            modelClass: balanced
+          review-fixer:
+            modelClass: balanced
+          validation-fixer:
+            modelClass: balanced
+          formatter:
+            modelClass: balanced
+
   pi-nemotron:
     envFile: env/pi.env
     configOverlay:
