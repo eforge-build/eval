@@ -140,4 +140,11 @@ export interface ScenarioMeta {
     };
     [key: string]: unknown;
   };
+  matrix?: Array<{
+    variantLabel: string;
+    configOverlay?: ScenarioMeta['configOverlay'];
+    envFile?: string;
+    expect?: ScenarioMeta['expect'];
+    validate?: string[];
+  }>;
 }

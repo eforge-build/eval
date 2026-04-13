@@ -10,14 +10,13 @@ MAX_RUNS=50  # Keep only the most recent N runs; older ones are pruned automatic
 # Source the scenario runner
 source "$SCRIPT_DIR/lib/run-scenario.sh"
 
-# Parse scenarios.yaml into tab-separated fields using node
-# Fields: id, fixture, prd, validate (||| delimited), description, expect (JSON), configOverlay (JSON), envFile
+# Parse scenarios.yaml into tab-separated fields using the TypeScript loader
+# (includes matrix expansion). Fields: id, fixture, prd, validate (||| delimited),
+# description, expect (JSON), configOverlay (JSON), envFile
 parse_scenarios() {
   npx tsx -e "
-    import { readFileSync } from 'fs';
-    import { parse } from 'yaml';
-    const data = parse(readFileSync('$SCENARIOS_FILE', 'utf8'));
-    for (const s of data.scenarios) {
+    import { loadScenarios } from '$SCRIPT_DIR/lib/scenarios.ts';
+    for (const s of loadScenarios('$SCENARIOS_FILE')) {
       const validate = (s.validate || []).join('|||');
       const expect = JSON.stringify(s.expect || {});
       const configOverlay = JSON.stringify(s.configOverlay || {});
@@ -272,6 +271,7 @@ print_observations() {
 # Main
 main() {
   local filters=()
+  local variant_filter=""  # comma-separated variant labels (e.g. "claude-sdk,pi-codex")
   local repeat_count=1
   local compare_timestamp=""
   ENV_FILE=""      # exported for run-scenario.sh
@@ -291,10 +291,21 @@ main() {
       --compare)
         if [[ $# -lt 2 ]]; then echo "Error: --compare requires a <timestamp> argument"; exit 1; fi
         compare_timestamp="$2"; shift 2 ;;
+      --all)        filters=("__all__"); shift ;;
+      --variants)
+        if [[ $# -lt 2 ]]; then echo "Error: --variants requires a comma-separated list"; exit 1; fi
+        variant_filter="$2"; shift 2 ;;
       --help|-h)
-        echo "Usage: run.sh [OPTIONS] [SCENARIO_ID...]"
+        echo "Usage: run.sh [OPTIONS] SCENARIO_ID [SCENARIO_ID...]"
+        echo "       run.sh --all [OPTIONS]"
+        echo ""
+        echo "Runs eval scenarios. At least one scenario ID is required (or --all)."
+        echo "Scenario IDs support prefix matching: 'todo-api-errand-health-check'"
+        echo "runs all variants of that base scenario."
         echo ""
         echo "Options:"
+        echo "  --all                  Run all scenarios"
+        echo "  --variants LIST        Comma-separated variant labels to include (e.g. claude-sdk,pi-codex)"
         echo "  --dry-run              Set up workspaces but skip eforge and validation"
         echo "  --env-file FILE        Source environment variables (e.g. Langfuse credentials)"
         echo "  --repeat N             Run each scenario N times (default: 1)"
@@ -309,6 +320,41 @@ main() {
       *)            filters+=("$1"); shift ;;
     esac
   done
+
+  # Require at least one scenario ID (or --all)
+  if [[ ${#filters[@]} -eq 0 ]]; then
+    echo "Error: At least one scenario ID is required (or use --all to run everything)."
+    echo "Run './run.sh --help' for usage."
+    exit 1
+  fi
+
+  # Validate --variants against available variant labels
+  if [[ -n "$variant_filter" ]]; then
+    local available_variants
+    available_variants=$(npx tsx -e "
+      import { loadScenarios } from '$SCRIPT_DIR/lib/scenarios.ts';
+      const scenarios = loadScenarios('$SCENARIOS_FILE');
+      const labels = new Set(scenarios.map(s => s.id.includes('--') ? s.id.split('--').pop() : null).filter(Boolean));
+      console.log([...labels].join(','));
+    ")
+    IFS=',' read -ra requested_variants <<< "$variant_filter"
+    IFS=',' read -ra known_variants <<< "$available_variants"
+    local invalid=()
+    for v in "${requested_variants[@]}"; do
+      local found=false
+      for k in "${known_variants[@]}"; do
+        if [[ "$v" == "$k" ]]; then found=true; break; fi
+      done
+      if [[ "$found" == "false" ]]; then
+        invalid+=("$v")
+      fi
+    done
+    if [[ ${#invalid[@]} -gt 0 ]]; then
+      echo "Error: Unknown variant(s): ${invalid[*]}"
+      echo "Available variants: $available_variants"
+      exit 1
+    fi
+  fi
 
   # Validate --compare timestamp
   if [[ -n "$compare_timestamp" ]]; then
@@ -387,16 +433,34 @@ main() {
     export SCENARIO_CONFIG_OVERLAY="${config_overlay_json}"
     # Export per-scenario env file for run-scenario.sh
     export SCENARIO_ENV_FILE="${env_file}"
-    # Filter if specified
-    if [[ ${#filters[@]} -gt 0 ]]; then
+    # Filter by scenario ID (--all bypasses)
+    if [[ "${filters[0]}" != "__all__" ]]; then
       local match=false
       for f in "${filters[@]}"; do
-        if [[ "$id" == "$f" ]]; then
+        # Exact match OR prefix match (e.g. "todo-api-errand-health-check" matches
+        # "todo-api-errand-health-check--claude-sdk" and all other matrix variants)
+        if [[ "$id" == "$f" || "$id" == "$f"--* ]]; then
           match=true
           break
         fi
       done
       if [[ "$match" == "false" ]]; then
+        continue
+      fi
+    fi
+
+    # Filter by variant label (--variants)
+    if [[ -n "$variant_filter" && "$id" == *--* ]]; then
+      local variant_label="${id##*--}"
+      local variant_match=false
+      IFS=',' read -ra variant_list <<< "$variant_filter"
+      for v in "${variant_list[@]}"; do
+        if [[ "$variant_label" == "$v" ]]; then
+          variant_match=true
+          break
+        fi
+      done
+      if [[ "$variant_match" == "false" ]]; then
         continue
       fi
     fi

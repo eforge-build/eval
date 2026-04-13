@@ -17,13 +17,15 @@ pnpm install
 ## Usage
 
 ```bash
-./run.sh                              # Run all scenarios
-./run.sh todo-health-check            # Run one scenario by ID
-./run.sh pi-codex-todo-api-errand-health-check  # Run one Pi/Codex OAuth scenario
-./open-monitor.sh                     # Open monitor for eval results DB
-./run.sh --dry-run                    # Set up workspaces without running eforge
-./run.sh --env-file .env              # Source env vars (e.g. Langfuse credentials)
-./run.sh --cleanup                    # Remove all results
+./run.sh todo-api-errand-health-check                          # Run all variants (prefix match)
+./run.sh todo-api-errand-health-check --variants claude-sdk,pi-codex  # Only these variants
+./run.sh todo-api-errand-health-check--claude-sdk              # One specific variant
+./run.sh --all                                                 # Run every scenario
+./run.sh --all --variants claude-sdk                           # All scenarios, claude-sdk only
+./run.sh --all --env-file .env                                 # Run all with env vars
+./run.sh --dry-run todo-api-errand-health-check                # Set up workspace only
+./run.sh --cleanup                                             # Remove all results
+./open-monitor.sh                                              # Open monitor UI
 ```
 
 ### Environment variables
@@ -78,6 +80,33 @@ scenarios:
 ```
 
 Create the fixture under `fixtures/my-fixture/` with source code and the PRD file.
+
+### Variant matrix
+
+To compare the same scenario across different configs, use a `matrix` instead of duplicating the full scenario:
+
+```yaml
+scenarios:
+  - id: my-scenario
+    fixture: my-fixture
+    prd: docs/my-prd.md
+    validate: [pnpm install, pnpm type-check, pnpm test]
+    expect:
+      mode: excursion
+    matrix:
+      - variantLabel: claude-sdk
+        configOverlay:
+          backend: claude-sdk
+      - variantLabel: pi-nemotron
+        envFile: env/pi.env
+        configOverlay:
+          backend: pi
+          agents:
+            models:
+              max: { provider: openrouter, id: nvidia/nemotron-3-super-120b-a12b:free }
+```
+
+Each matrix entry expands into a full scenario with ID `<base-id>--<variantLabel>`. Variants share a `compareGroup` for side-by-side comparison. Per-variant `envFile`, `expect`, and `validate` overrides are supported.
 
 For Pi scenarios, configure the provider under `pi.provider` and the model under `agents.model` or `agents.models.*`. Do not use `pi.model`; that is no longer part of eforge's Pi config schema.
 

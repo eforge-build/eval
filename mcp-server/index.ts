@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { spawn } from 'child_process';
 import { readFileSync, readdirSync, existsSync } from 'fs';
 import { join, resolve } from 'path';
-import { parse as parseYaml } from 'yaml';
+import { loadScenarios } from '../lib/scenarios.js';
 
 const PROJECT_ROOT = resolve(import.meta.dirname, '..');
 const RESULTS_DIR = join(PROJECT_ROOT, 'results');
@@ -40,9 +40,7 @@ server.tool(
   'List available eval scenarios from scenarios.yaml.',
   {},
   async () => {
-    const raw = readFileSync(SCENARIOS_FILE, 'utf8');
-    const parsed = parseYaml(raw);
-    const scenarios = (Array.isArray(parsed.scenarios) ? parsed.scenarios : []).map((s: Record<string, unknown>) => ({
+    const scenarios = loadScenarios(SCENARIOS_FILE).map((s) => ({
       id: s.id,
       fixture: s.fixture,
       prd: s.prd,
@@ -58,11 +56,12 @@ server.tool(
   'eval_run',
   'Spawn an eval run. Returns immediately with a runId (timestamp). Use eval_run_status to check completion.',
   {
-    scenarios: z.array(z.string()).optional().describe('Optional list of scenario IDs to run'),
+    scenarios: z.array(z.string()).optional().describe('Optional list of scenario IDs to run (prefix match supported)'),
+    variants: z.string().optional().describe('Comma-separated variant labels to include (e.g. "claude-sdk,pi-codex")'),
     repeat: z.number().optional().describe('Number of times to repeat each scenario'),
     compare: z.string().optional().describe('Timestamp of a previous run to compare against'),
   },
-  async ({ scenarios, repeat, compare }) => {
+  async ({ scenarios, variants, repeat, compare }) => {
     const args: string[] = [];
 
     if (repeat && repeat > 1) {
@@ -71,8 +70,13 @@ server.tool(
     if (compare) {
       args.push('--compare', compare);
     }
+    if (variants) {
+      args.push('--variants', variants);
+    }
     if (scenarios && scenarios.length > 0) {
       args.push(...scenarios);
+    } else {
+      args.push('--all');
     }
 
     const child = spawn(RUN_SCRIPT, args, {

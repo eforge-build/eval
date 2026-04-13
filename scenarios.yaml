@@ -1,6 +1,10 @@
 # Eforge evaluation scenarios
 # Each scenario defines a fixture + PRD to run eforge against.
 # Fixtures live in eval/fixtures/<fixture>/ as plain project files (no .git).
+#
+# Matrix: scenarios with a `matrix` field expand into one scenario per variant.
+# Generated IDs follow the pattern: <base-id>--<variantLabel>.
+# All variants in a matrix share a compareGroup for side-by-side comparison.
 
 scenarios:
   # --- todo-api ---
@@ -8,18 +12,78 @@ scenarios:
   - id: todo-api-errand-health-check
     fixture: todo-api
     prd: docs/add-health-check.md
-    validate:
-      - pnpm install
-      - pnpm type-check
-      - pnpm test
-      - test -f .eforge/hook-events.log && grep -q EFORGE_CWD .eforge/hook-events.log
     description: "Add GET /health endpoint to Express API"
     expect:
       mode: errand
       buildStagesExclude:
         - test-cycle
-    configOverlay:
-      backend: claude-sdk
+    matrix:
+      - variantLabel: claude-sdk
+        validate:
+          - pnpm install
+          - pnpm type-check
+          - pnpm test
+          - test -f .eforge/hook-events.log && grep -q EFORGE_CWD .eforge/hook-events.log
+        configOverlay:
+          backend: claude-sdk
+      - variantLabel: pi-nemotron
+        validate:
+          - pnpm install
+          - pnpm type-check
+          - pnpm test
+          - test -f .eforge/hook-events.log && grep -q EFORGE_CWD .eforge/hook-events.log
+          - test -f .pi-extension-loaded
+        envFile: env/pi.env
+        configOverlay:
+          backend: pi
+          agents:
+            models:
+              max:
+                provider: openrouter
+                id: nvidia/nemotron-3-super-120b-a12b:free
+      - variantLabel: pi-codex
+        validate:
+          - pnpm install
+          - pnpm type-check
+          - pnpm test
+          - test -f .eforge/hook-events.log && grep -q EFORGE_CWD .eforge/hook-events.log
+          - test -f .pi-extension-loaded
+        configOverlay:
+          backend: pi
+          agents:
+            models:
+              max:
+                provider: openai-codex
+                id: gpt-5.4
+      - variantLabel: pi-glm
+        validate:
+          - pnpm install
+          - pnpm type-check
+          - pnpm test
+          - test -f .eforge/hook-events.log && grep -q EFORGE_CWD .eforge/hook-events.log
+          - test -f .pi-extension-loaded
+        envFile: env/pi.env
+        configOverlay:
+          backend: pi
+          agents:
+            models:
+              max:
+                provider: openrouter
+                id: z-ai/glm-5.1
+      - variantLabel: pi-gemma4
+        validate:
+          - pnpm install
+          - pnpm type-check
+          - pnpm test
+          - test -f .eforge/hook-events.log && grep -q EFORGE_CWD .eforge/hook-events.log
+          - test -f .pi-extension-loaded
+        configOverlay:
+          backend: pi
+          agents:
+            models:
+              max:
+                provider: llama-cpp
+                id: gemma-4
 
   - id: todo-api-excursion-jwt-auth
     fixture: todo-api
@@ -31,8 +95,19 @@ scenarios:
     description: "Add JWT auth middleware + protected routes"
     expect:
       mode: excursion
-    configOverlay:
-      backend: claude-sdk
+    matrix:
+      - variantLabel: claude-sdk
+        configOverlay:
+          backend: claude-sdk
+      - variantLabel: pi-nemotron
+        envFile: env/pi.env
+        configOverlay:
+          backend: pi
+          agents:
+            models:
+              max:
+                provider: openrouter
+                id: nvidia/nemotron-3-super-120b-a12b:free
 
   - id: todo-api-errand-skip
     fixture: todo-api
@@ -45,8 +120,19 @@ scenarios:
     expect:
       mode: errand
       skip: true
-    configOverlay:
-      backend: claude-sdk
+    matrix:
+      - variantLabel: claude-sdk
+        configOverlay:
+          backend: claude-sdk
+      - variantLabel: pi-nemotron
+        envFile: env/pi.env
+        configOverlay:
+          backend: pi
+          agents:
+            models:
+              max:
+                provider: openrouter
+                id: nvidia/nemotron-3-super-120b-a12b:free
 
   # --- workspace-api ---
 
@@ -60,8 +146,19 @@ scenarios:
     description: "Add reactions, threads, and pins to workspace API (expedition, parallel modules)"
     expect:
       mode: excursion
-    configOverlay:
-      backend: claude-sdk
+    matrix:
+      - variantLabel: claude-sdk
+        configOverlay:
+          backend: claude-sdk
+      - variantLabel: pi-nemotron
+        envFile: env/pi.env
+        configOverlay:
+          backend: pi
+          agents:
+            models:
+              max:
+                provider: openrouter
+                id: nvidia/nemotron-3-super-120b-a12b:free
 
   - id: workspace-api-expedition-extensions
     fixture: workspace-api
@@ -129,222 +226,32 @@ scenarios:
       mode: excursion
       buildStagesContain:
         - test-cycle
-    configOverlay:
-      backend: claude-sdk
-
-  # --- Pi backend scenarios ---
-
-  - id: pi-todo-api-errand-health-check
-    fixture: todo-api
-    prd: docs/add-health-check.md
-    validate:
-      - pnpm install
-      - pnpm type-check
-      - pnpm test
-      - test -f .eforge/hook-events.log && grep -q EFORGE_CWD .eforge/hook-events.log
-      - test -f .pi-extension-loaded
-    description: "Add GET /health endpoint to Express API (Pi backend)"
-    expect:
-      mode: errand
-      buildStagesExclude:
-        - test-cycle
-    envFile: env/pi.env
-    configOverlay:
-      backend: pi
-      agents:
-        models:
-          max:
-            provider: openrouter
-            id: nvidia/nemotron-3-super-120b-a12b:free
-
-  - id: pi-todo-api-errand-skip
-    fixture: todo-api
-    prd: docs/skip-already-done.md
-    validate:
-      - pnpm install
-      - pnpm type-check
-      - pnpm test
-    description: "PRD describes what db.ts already implements - should skip (Pi backend)"
-    expect:
-      mode: errand
-      skip: true
-    envFile: env/pi.env
-    configOverlay:
-      backend: pi
-      agents:
-        models:
-          max:
-            provider: openrouter
-            id: nvidia/nemotron-3-super-120b-a12b:free
-
-  - id: pi-todo-api-excursion-jwt-auth
-    fixture: todo-api
-    prd: docs/add-jwt-auth.md
-    validate:
-      - pnpm install
-      - pnpm type-check
-      - pnpm test
-    description: "Add JWT auth middleware + protected routes (Pi backend)"
-    expect:
-      mode: excursion
-    envFile: env/pi.env
-    configOverlay:
-      backend: pi
-      agents:
-        models:
-          max:
-            provider: openrouter
-            id: nvidia/nemotron-3-super-120b-a12b:free
-
-  - id: pi-notes-api-excursion-search
-    fixture: notes-api
-    prd: docs/prd/add-search.md
-    validate:
-      - pnpm install
-      - pnpm type-check
-      - pnpm test
-    description: "Add GET /notes/search?q= with test coverage (Pi backend)"
-    expect:
-      mode: excursion
-      buildStagesContain:
-        - test-cycle
-    envFile: env/pi.env
-    configOverlay:
-      backend: pi
-      agents:
-        models:
-          max:
-            provider: openrouter
-            id: nvidia/nemotron-3-super-120b-a12b:free
-
-  - id: pi-workspace-api-excursion-engagement
-    fixture: workspace-api
-    prd: docs/add-engagement-features.md
-    validate:
-      - pnpm install
-      - pnpm type-check
-      - pnpm test
-    description: "Add reactions, threads, and pins to workspace API (Pi backend)"
-    expect:
-      mode: excursion
-    envFile: env/pi.env
-    configOverlay:
-      backend: pi
-      agents:
-        models:
-          max:
-            provider: openrouter
-            id: nvidia/nemotron-3-super-120b-a12b:free
-
-  # --- Pi backend scenarios (OpenAI Codex OAuth) ---
-
-  - id: pi-codex-todo-api-errand-health-check
-    fixture: todo-api
-    prd: docs/add-health-check.md
-    validate:
-      - pnpm install
-      - pnpm type-check
-      - pnpm test
-      - test -f .eforge/hook-events.log && grep -q EFORGE_CWD .eforge/hook-events.log
-      - test -f .pi-extension-loaded
-    description: "Add GET /health endpoint to Express API (Pi backend via OpenAI Codex OAuth)"
-    expect:
-      mode: errand
-      buildStagesExclude:
-        - test-cycle
-    configOverlay:
-      backend: pi
-      agents:
-        models:
-          max:
-            provider: openai-codex
-            id: gpt-5.4
-
-  - id: pi-codex-notes-api-excursion-search
-    fixture: notes-api
-    prd: docs/prd/add-search.md
-    validate:
-      - pnpm install
-      - pnpm type-check
-      - pnpm test
-    description: "Add GET /notes/search?q= with test coverage (Pi backend via OpenAI Codex OAuth)"
-    expect:
-      mode: excursion
-      buildStagesContain:
-        - test-cycle
-    configOverlay:
-      backend: pi
-      agents:
-        models:
-          max:
-            provider: openai-codex
-            id: gpt-5.4
-
-  # --- Pi backend scenarios (GLM 5.1 via OpenRouter) ---
-
-  - id: pi-glm-todo-api-errand-health-check
-    fixture: todo-api
-    prd: docs/add-health-check.md
-    validate:
-      - pnpm install
-      - pnpm type-check
-      - pnpm test
-      - test -f .eforge/hook-events.log && grep -q EFORGE_CWD .eforge/hook-events.log
-      - test -f .pi-extension-loaded
-    description: "Add GET /health endpoint to Express API (Pi backend via OpenRouter GLM 5.1)"
-    expect:
-      mode: errand
-      buildStagesExclude:
-        - test-cycle
-    envFile: env/pi.env
-    configOverlay:
-      backend: pi
-      agents:
-        models:
-          max:
-            provider: openrouter
-            id: z-ai/glm-5.1
-
-  # --- Pi backend scenarios (Gemma 4 llamma.cp) ---
-
-  - id: pi-gemma4-todo-api-errand-health-check
-    fixture: todo-api
-    prd: docs/add-health-check.md
-    validate:
-      - pnpm install
-      - pnpm type-check
-      - pnpm test
-      - test -f .eforge/hook-events.log && grep -q EFORGE_CWD .eforge/hook-events.log
-      - test -f .pi-extension-loaded
-    description: "Add GET /health endpoint to Express API (Pi backend via OpenAI Codex OAuth)"
-    expect:
-      mode: errand
-      buildStagesExclude:
-        - test-cycle
-    configOverlay:
-      backend: pi
-      agents:
-        models:
-          max:
-            provider: llama-cpp
-            id: gemma-4
-
-  - id: pi-gemma4-notes-api-excursion-search
-    fixture: notes-api
-    prd: docs/prd/add-search.md
-    validate:
-      - pnpm install
-      - pnpm type-check
-      - pnpm test
-    description: "Add GET /notes/search?q= with test coverage (Pi backend via OpenAI Codex OAuth)"
-    expect:
-      mode: excursion
-      buildStagesContain:
-        - test-cycle
-    configOverlay:
-      backend: pi
-      agents:
-        models:
-          max:
-            provider: llama-cpp
-            id: gemma-4
+    matrix:
+      - variantLabel: claude-sdk
+        configOverlay:
+          backend: claude-sdk
+      - variantLabel: pi-nemotron
+        envFile: env/pi.env
+        configOverlay:
+          backend: pi
+          agents:
+            models:
+              max:
+                provider: openrouter
+                id: nvidia/nemotron-3-super-120b-a12b:free
+      - variantLabel: pi-codex
+        configOverlay:
+          backend: pi
+          agents:
+            models:
+              max:
+                provider: openai-codex
+                id: gpt-5.4
+      - variantLabel: pi-gemma4
+        configOverlay:
+          backend: pi
+          agents:
+            models:
+              max:
+                provider: llama-cpp
+                id: gemma-4
