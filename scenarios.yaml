@@ -280,6 +280,31 @@ scenarios:
             provider: openai-codex
             id: gpt-5.4
 
+  # --- Pi backend scenarios (GLM 5.1 via OpenRouter) ---
+
+  - id: pi-glm-todo-api-errand-health-check
+    fixture: todo-api
+    prd: docs/add-health-check.md
+    validate:
+      - pnpm install
+      - pnpm type-check
+      - pnpm test
+      - test -f .eforge/hook-events.log && grep -q EFORGE_CWD .eforge/hook-events.log
+      - test -f .pi-extension-loaded
+    description: "Add GET /health endpoint to Express API (Pi backend via OpenRouter GLM 5.1)"
+    expect:
+      mode: errand
+      buildStagesExclude:
+        - test-cycle
+    envFile: env/pi.env
+    configOverlay:
+      backend: pi
+      agents:
+        models:
+          max:
+            provider: openrouter
+            id: z-ai/glm-5.1
+
   # --- Pi backend scenarios (Gemma 4 llamma.cp) ---
 
   - id: pi-gemma4-todo-api-errand-health-check
