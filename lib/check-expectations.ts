@@ -1,174 +1,219 @@
 #!/usr/bin/env tsx
-// Check scenario expectations against orchestration.yaml and monitor.db.
-// Usage: npx tsx check-expectations.ts <result.json> <expect-json> <scenario-dir>
+// Check scenario expectations against monitor DB events.
+// Usage: npx tsx check-expectations.ts <result.json> <expect-json> <scenario-dir> <monitor-db-path>
 //
-// Reads orchestration.yaml and monitor.db from scenario-dir, checks expect config,
-// and writes an `expectations` key into result.json with pass/fail per check.
+// Reads plan:pipeline and plan:skip events from the shared monitor DB,
+// checks expect config, and writes an `expectations` key into result.json.
 
 process.removeAllListeners('warning');
 import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { join } from 'path';
-import { parse as parseYaml } from 'yaml';
 import { DatabaseSync } from 'node:sqlite';
+import { type ExpectationCheck } from './types.js';
 
-interface ExpectConfig {
+export interface ExpectConfig {
   mode?: string;
   buildStagesContain?: string[];
   buildStagesExclude?: string[];
   skip?: boolean;
 }
 
-interface ExpectationResult {
-  check: string;
+export interface ExpectationsResult {
   passed: boolean;
-  expected: unknown;
-  actual: unknown;
+  checks: ExpectationCheck[];
 }
 
-interface OrchestrationPlanEntry {
-  id: string;
-  name: string;
-  build: Array<string | string[]>;
-  [key: string]: unknown;
+export interface CheckExpectOpts {
+  resultFile: string;
+  expectConfig: ExpectConfig;
+  monitorDbPath: string;
+  runIds: string[];
 }
 
-interface OrchestrationData {
-  mode: string;
-  plans: OrchestrationPlanEntry[];
-  [key: string]: unknown;
+interface PipelineEvent {
+  scope: string;
+  defaultBuild: Array<string | string[]>;
 }
 
-const [, , resultFile, expectJson, scenarioDir] = process.argv;
+/**
+ * Read plan:pipeline event from monitor DB for the given run IDs.
+ */
+function readPipelineEvent(dbPath: string, runIds: string[]): PipelineEvent | undefined {
+  if (!existsSync(dbPath)) return undefined;
 
-if (!resultFile || !expectJson || !scenarioDir) {
-  console.error('Usage: check-expectations.ts <result.json> <expect-json> <scenario-dir>');
-  process.exit(1);
-}
-
-// Parse expect config
-let expect: ExpectConfig = {};
-try {
-  expect = JSON.parse(expectJson);
-} catch {
-  // Empty or malformed — no expectations
-}
-
-// If no expectations defined, nothing to check
-if (Object.keys(expect).length === 0) {
-  process.exit(0);
-}
-
-const results: ExpectationResult[] = [];
-
-// Load orchestration.yaml — look for it in the scenario dir (copied there by run-scenario.sh)
-let orchestration: OrchestrationData | undefined;
-const orchPath = join(scenarioDir, 'orchestration.yaml');
-if (existsSync(orchPath)) {
+  let db: DatabaseSync;
   try {
-    orchestration = parseYaml(readFileSync(orchPath, 'utf8')) as OrchestrationData;
+    db = new DatabaseSync(dbPath, { readOnly: true });
   } catch {
-    // Malformed orchestration.yaml
+    return undefined;
+  }
+
+  try {
+    const tableCheck = db.prepare(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='events'`,
+    ).get() as unknown as { name: string } | undefined;
+    if (!tableCheck) return undefined;
+
+    const hasFilter = runIds.length > 0;
+    const placeholders = runIds.map(() => '?').join(', ');
+    const runFilter = hasFilter ? `AND run_id IN (${placeholders})` : '';
+
+    const stmt = db.prepare(
+      `SELECT data FROM events WHERE type = 'plan:pipeline' ${runFilter} LIMIT 1`,
+    );
+    const row = (hasFilter ? stmt.get(...runIds) : stmt.get()) as unknown as { data: string } | undefined;
+    if (!row) return undefined;
+
+    return JSON.parse(row.data) as PipelineEvent;
+  } catch {
+    return undefined;
+  } finally {
+    db.close();
   }
 }
 
-// Check mode
-if (expect.mode !== undefined) {
-  const actualMode = orchestration?.mode;
-  results.push({
-    check: 'mode',
-    passed: actualMode === expect.mode,
-    expected: expect.mode,
-    actual: actualMode ?? null,
-  });
+/**
+ * Check whether a plan:skip event exists in the monitor DB.
+ */
+function hasSkipEvent(dbPath: string, runIds: string[]): boolean {
+  if (!existsSync(dbPath)) return false;
+
+  let db: DatabaseSync;
+  try {
+    db = new DatabaseSync(dbPath, { readOnly: true });
+  } catch {
+    return false;
+  }
+
+  try {
+    const tableCheck = db.prepare(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='events'`,
+    ).get() as unknown as { name: string } | undefined;
+    if (!tableCheck) return false;
+
+    const hasFilter = runIds.length > 0;
+    const placeholders = runIds.map(() => '?').join(', ');
+    const runFilter = hasFilter ? `AND run_id IN (${placeholders})` : '';
+
+    const stmt = db.prepare(
+      `SELECT COUNT(*) as cnt FROM events WHERE type = 'plan:skip' ${runFilter}`,
+    );
+    const row = (hasFilter ? stmt.get(...runIds) : stmt.get()) as unknown as { cnt: number };
+    return row.cnt > 0;
+  } catch {
+    return false;
+  } finally {
+    db.close();
+  }
 }
 
-// Flatten all build stages from all plan entries
-function flattenBuildStages(plans: OrchestrationPlanEntry[]): string[] {
+/**
+ * Flatten build stages from a defaultBuild array (which may contain nested arrays
+ * for parallel stages).
+ */
+function flattenBuildStages(defaultBuild: Array<string | string[]>): string[] {
   const stages: string[] = [];
-  for (const plan of plans) {
-    if (!plan.build) continue;
-    for (const spec of plan.build) {
-      if (Array.isArray(spec)) {
-        stages.push(...spec);
-      } else {
-        stages.push(spec);
-      }
+  for (const spec of defaultBuild) {
+    if (Array.isArray(spec)) {
+      stages.push(...spec);
+    } else {
+      stages.push(spec);
     }
   }
   return stages;
 }
 
-// Check buildStagesContain
-if (expect.buildStagesContain !== undefined) {
-  const allStages = orchestration?.plans ? flattenBuildStages(orchestration.plans) : [];
-  const uniqueStages = [...new Set(allStages)];
-  const missing = expect.buildStagesContain.filter(s => !uniqueStages.includes(s));
-  results.push({
-    check: 'buildStagesContain',
-    passed: missing.length === 0,
-    expected: expect.buildStagesContain,
-    actual: uniqueStages,
-  });
-}
+/**
+ * Check scenario expectations and write results into result.json.
+ * Returns the expectations result.
+ */
+export function checkExpectations(opts: CheckExpectOpts): ExpectationsResult {
+  const { resultFile, expectConfig, monitorDbPath, runIds } = opts;
 
-// Check buildStagesExclude
-if (expect.buildStagesExclude !== undefined) {
-  const allStages = orchestration?.plans ? flattenBuildStages(orchestration.plans) : [];
-  const uniqueStages = [...new Set(allStages)];
-  const found = expect.buildStagesExclude.filter(s => uniqueStages.includes(s));
-  results.push({
-    check: 'buildStagesExclude',
-    passed: found.length === 0,
-    expected: expect.buildStagesExclude,
-    actual: found.length > 0 ? found : [],
-  });
-}
-
-// Check skip
-if (expect.skip !== undefined) {
-  let hasSkipEvent = false;
-  const dbPath = join(scenarioDir, 'monitor.db');
-  if (existsSync(dbPath)) {
-    try {
-      const db = new DatabaseSync(dbPath, { readOnly: true });
-      try {
-        const tableCheck = db.prepare(
-          `SELECT name FROM sqlite_master WHERE type='table' AND name='events'`
-        ).get() as unknown as { name: string } | undefined;
-        if (tableCheck) {
-          const row = db.prepare(
-            `SELECT COUNT(*) as cnt FROM events WHERE type = 'plan:skip'`
-          ).get() as unknown as { cnt: number };
-          hasSkipEvent = row.cnt > 0;
-        }
-      } finally {
-        db.close();
-      }
-    } catch {
-      // DB may not exist or be corrupted
-    }
+  if (Object.keys(expectConfig).length === 0) {
+    return { passed: true, checks: [] };
   }
-  results.push({
-    check: 'skip',
-    passed: hasSkipEvent === expect.skip,
-    expected: expect.skip,
-    actual: hasSkipEvent,
-  });
+
+  const checks: ExpectationCheck[] = [];
+  const pipeline = readPipelineEvent(monitorDbPath, runIds);
+
+  // Check mode
+  if (expectConfig.mode !== undefined) {
+    const actualMode = pipeline?.scope ?? null;
+    checks.push({
+      check: 'mode',
+      passed: actualMode === expectConfig.mode,
+      expected: expectConfig.mode,
+      actual: actualMode,
+    });
+  }
+
+  // Check buildStagesContain
+  if (expectConfig.buildStagesContain !== undefined) {
+    const allStages = pipeline?.defaultBuild ? flattenBuildStages(pipeline.defaultBuild) : [];
+    const uniqueStages = [...new Set(allStages)];
+    const missing = expectConfig.buildStagesContain.filter(s => !uniqueStages.includes(s));
+    checks.push({
+      check: 'buildStagesContain',
+      passed: missing.length === 0,
+      expected: expectConfig.buildStagesContain,
+      actual: uniqueStages,
+    });
+  }
+
+  // Check buildStagesExclude
+  if (expectConfig.buildStagesExclude !== undefined) {
+    const allStages = pipeline?.defaultBuild ? flattenBuildStages(pipeline.defaultBuild) : [];
+    const uniqueStages = [...new Set(allStages)];
+    const found = expectConfig.buildStagesExclude.filter(s => uniqueStages.includes(s));
+    checks.push({
+      check: 'buildStagesExclude',
+      passed: found.length === 0,
+      expected: expectConfig.buildStagesExclude,
+      actual: found.length > 0 ? found : [],
+    });
+  }
+
+  // Check skip
+  if (expectConfig.skip !== undefined) {
+    const skipped = hasSkipEvent(monitorDbPath, runIds);
+    checks.push({
+      check: 'skip',
+      passed: skipped === expectConfig.skip,
+      expected: expectConfig.skip,
+      actual: skipped,
+    });
+  }
+
+  const allPassed = checks.every(r => r.passed);
+  const result: ExpectationsResult = { passed: allPassed, checks };
+
+  try {
+    const resultData = JSON.parse(readFileSync(resultFile, 'utf8'));
+    resultData.expectations = result;
+    writeFileSync(resultFile, JSON.stringify(resultData, null, 2) + '\n');
+  } catch (err) {
+    throw new Error(`Failed to update result.json: ${err}`);
+  }
+
+  return result;
 }
 
-// Write expectations into result.json
-const allPassed = results.every(r => r.passed);
-try {
-  const resultData = JSON.parse(readFileSync(resultFile, 'utf8'));
-  resultData.expectations = {
-    passed: allPassed,
-    checks: results,
-  };
-  writeFileSync(resultFile, JSON.stringify(resultData, null, 2) + '\n');
-} catch (err) {
-  console.error(`Failed to update result.json: ${err}`);
-  process.exit(1);
-}
+// CLI entry point
+if (process.argv[1] && (process.argv[1].endsWith('check-expectations.ts') || process.argv[1].endsWith('check-expectations.js'))) {
+  const [, , resultFile, expectJson, monitorDbPath, ...runIdArgs] = process.argv;
 
-// Exit with appropriate code
-process.exit(allPassed ? 0 : 1);
+  if (!resultFile || !expectJson || !monitorDbPath) {
+    console.error('Usage: check-expectations.ts <result.json> <expect-json> <monitor-db-path> [run-id...]');
+    process.exit(1);
+  }
+
+  let expectConfig: ExpectConfig = {};
+  try {
+    expectConfig = JSON.parse(expectJson);
+  } catch {
+    // Empty or malformed — no expectations
+  }
+
+  const result = checkExpectations({ resultFile, expectConfig, monitorDbPath, runIds: runIdArgs });
+  process.exit(result.passed ? 0 : 1);
+}

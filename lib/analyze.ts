@@ -167,13 +167,30 @@ function detectProfileSelection(results: ScenarioResult[]): Observation[] {
     if (!r.expectations) continue;
     for (const check of r.expectations.checks) {
       if (!check.passed) {
+        let message: string;
+        switch (check.check) {
+          case 'mode':
+            message = `Scenario "${r.scenario}": selected mode "${check.actual}" (expected "${check.expected}")`;
+            break;
+          case 'buildStagesContain':
+            message = `Scenario "${r.scenario}": missing expected build stages ${JSON.stringify(check.expected)} (present: ${JSON.stringify(check.actual)})`;
+            break;
+          case 'buildStagesExclude':
+            message = `Scenario "${r.scenario}": build includes excluded stages ${JSON.stringify(check.actual)}`;
+            break;
+          case 'skip':
+            message = `Scenario "${r.scenario}": expected skip=${JSON.stringify(check.expected)}, actual skip=${JSON.stringify(check.actual)}`;
+            break;
+          default:
+            message = `Scenario "${r.scenario}" expectation "${check.check}": expected ${JSON.stringify(check.expected)}, actual ${JSON.stringify(check.actual)}`;
+        }
         observations.push({
           detector: 'profile-selection',
           signal: 'expectation-mismatch',
           severity: 'attention',
           value: `${check.expected}`,
           context: { scenario: r.scenario, check: check.check, expected: check.expected, actual: check.actual },
-          message: `Scenario "${r.scenario}" expectation "${check.check}" failed: expected ${JSON.stringify(check.expected)}, got ${JSON.stringify(check.actual)}`,
+          message,
         });
       }
     }
@@ -201,8 +218,7 @@ function detectTemporalRegression(results: ScenarioResult[], history: History): 
   const currentPassed = results.filter(r => {
     const eforgeOk = r.eforgeExitCode === 0;
     const validateOk = Object.values(r.validation || {}).every(v => v.passed);
-    const expectOk = !r.expectations || r.expectations.passed;
-    return eforgeOk && validateOk && expectOk;
+    return eforgeOk && validateOk;
   }).length;
   const currentPassRate = currentTotal > 0 ? currentPassed / currentTotal : 0;
   const previousPassRate = previousRun.total > 0 ? previousRun.passed / previousRun.total : 0;
@@ -301,8 +317,7 @@ function buildTrends(results: ScenarioResult[], history: History): Trend[] {
   const currentPassed = results.filter(r => {
     const eforgeOk = r.eforgeExitCode === 0;
     const validateOk = Object.values(r.validation || {}).every(v => v.passed);
-    const expectOk = !r.expectations || r.expectations.passed;
-    return eforgeOk && validateOk && expectOk;
+    return eforgeOk && validateOk;
   }).length;
   const currentPassRate = currentTotal > 0 ? currentPassed / currentTotal : 0;
   const previousPassRate = previousRun.total > 0 ? previousRun.passed / previousRun.total : 0;

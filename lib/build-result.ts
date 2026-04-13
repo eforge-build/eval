@@ -5,31 +5,18 @@
 process.removeAllListeners('warning');
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { DatabaseSync } from 'node:sqlite';
-import { type AgentAggregate, type ModelAggregate, type PhaseTimestamps, type ReviewIssueDetail, type EvaluationVerdict, type ScenarioMetrics } from './types.js';
+import { type AgentAggregate, type ModelAggregate, type PhaseTimestamps, type ReviewIssueDetail, type EvaluationVerdict, type ScenarioMetrics, type ScenarioResult } from './types.js';
 
-
-const [, , outputFile, scenario, eforgeVersion, eforgeCommit, exitCodeStr, durationStr, logFile, validationJson, monitorDbPath] =
-  process.argv;
-
-// Parse the eforge log to extract run IDs and Langfuse trace ID
-let langfuseTraceId: string | undefined;
-const runIds: string[] = [];
-try {
-  const log = readFileSync(logFile, 'utf8');
-  for (const match of log.matchAll(/Run:\s+([a-f0-9-]+)/g)) {
-    runIds.push(match[1]);
-  }
-  if (runIds.length > 0) langfuseTraceId = runIds[0];
-} catch {
-  // Log file may not exist if eforge failed to start
-}
-
-// Parse validation results
-let validation: Record<string, unknown> = {};
-try {
-  validation = JSON.parse(validationJson);
-} catch {
-  // Empty or malformed validation
+export interface BuildResultOpts {
+  outputFile: string;
+  scenario: string;
+  eforgeVersion: string;
+  eforgeCommit: string;
+  exitCode: number;
+  duration: number;
+  logFile: string;
+  validation: Record<string, { exitCode: number; passed: boolean }>;
+  monitorDbPath?: string;
 }
 
 function extractMetrics(dbPath: string, runIds: string[]): ScenarioMetrics | undefined {
@@ -262,24 +249,70 @@ function extractMetrics(dbPath: string, runIds: string[]): ScenarioMetrics | und
   }
 }
 
-// Build the result object
-const result: Record<string, unknown> = {
-  scenario,
-  timestamp: new Date().toISOString(),
-  eforgeVersion,
-  eforgeCommit,
-  eforgeExitCode: parseInt(exitCodeStr, 10),
-  validation,
-  durationSeconds: parseInt(durationStr, 10),
-  ...(langfuseTraceId && { langfuseTraceId }),
-};
+/**
+ * Build a structured result from eval scenario output and write to outputFile.
+ * Returns the result object.
+ */
+export function buildResult(opts: BuildResultOpts): ScenarioResult {
+  const { outputFile, scenario, eforgeVersion, eforgeCommit, exitCode, duration, logFile, validation, monitorDbPath } = opts;
 
-// Extract metrics from monitor DB if available
-if (monitorDbPath) {
-  const metrics = extractMetrics(monitorDbPath, runIds);
-  if (metrics) {
-    result.metrics = metrics;
+  // Parse the eforge log to extract run IDs and Langfuse trace ID
+  let langfuseTraceId: string | undefined;
+  const runIds: string[] = [];
+  try {
+    const log = readFileSync(logFile, 'utf8');
+    for (const match of log.matchAll(/Run:\s+([a-f0-9-]+)/g)) {
+      runIds.push(match[1]);
+    }
+    if (runIds.length > 0) langfuseTraceId = runIds[0];
+  } catch {
+    // Log file may not exist if eforge failed to start
   }
+
+  const result: Record<string, unknown> = {
+    scenario,
+    timestamp: new Date().toISOString(),
+    eforgeVersion,
+    eforgeCommit,
+    eforgeExitCode: exitCode,
+    validation,
+    durationSeconds: duration,
+    ...(langfuseTraceId && { langfuseTraceId }),
+  };
+
+  // Extract metrics from monitor DB if available
+  if (monitorDbPath) {
+    const metrics = extractMetrics(monitorDbPath, runIds);
+    if (metrics) {
+      result.metrics = metrics;
+    }
+  }
+
+  writeFileSync(outputFile, JSON.stringify(result, null, 2) + '\n');
+  return result as unknown as ScenarioResult;
 }
 
-writeFileSync(outputFile, JSON.stringify(result, null, 2) + '\n');
+// CLI entry point
+if (process.argv[1] && (process.argv[1].endsWith('build-result.ts') || process.argv[1].endsWith('build-result.js'))) {
+  const [, , outputFile, scenario, eforgeVersion, eforgeCommit, exitCodeStr, durationStr, logFile, validationJson, monitorDbPath] =
+    process.argv;
+
+  let validation: Record<string, { exitCode: number; passed: boolean }> = {};
+  try {
+    validation = JSON.parse(validationJson);
+  } catch {
+    // Empty or malformed validation
+  }
+
+  buildResult({
+    outputFile,
+    scenario,
+    eforgeVersion,
+    eforgeCommit,
+    exitCode: parseInt(exitCodeStr, 10),
+    duration: parseInt(durationStr, 10),
+    logFile,
+    validation,
+    monitorDbPath,
+  });
+}

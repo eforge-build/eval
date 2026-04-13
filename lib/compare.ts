@@ -176,11 +176,12 @@ function comparePassFail(variants: VariantEntry[]): PassFailComparison {
   const ranked = variants.map((v) => {
     const eforgeOk = v.result.eforgeExitCode === 0;
     const validationPassed = Object.values(v.result.validation || {}).every((val) => val.passed);
+    // Expectations are informational, not pass/fail gates
     const expectationsPassed = !v.result.expectations || v.result.expectations.passed;
     return {
       variant: v.label,
       value: {
-        passed: eforgeOk && validationPassed && expectationsPassed,
+        passed: eforgeOk && validationPassed,
         eforgeExitCode: v.result.eforgeExitCode,
         validationPassed,
         expectationsPassed,
