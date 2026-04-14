@@ -9,6 +9,7 @@ process.removeAllListeners('warning');
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { DatabaseSync } from 'node:sqlite';
 import { type ExpectationCheck } from './types.js';
+import { resolveRunIds } from './build-result.js';
 
 export interface ExpectConfig {
   mode?: string;
@@ -26,7 +27,7 @@ export interface CheckExpectOpts {
   resultFile: string;
   expectConfig: ExpectConfig;
   monitorDbPath: string;
-  runIds: string[];
+  workspace: string;
 }
 
 interface PipelineEvent {
@@ -38,6 +39,7 @@ interface PipelineEvent {
  * Read plan:pipeline event from monitor DB for the given run IDs.
  */
 function readPipelineEvent(dbPath: string, runIds: string[]): PipelineEvent | undefined {
+  if (runIds.length === 0) return undefined;
   if (!existsSync(dbPath)) return undefined;
 
   let db: DatabaseSync;
@@ -53,14 +55,13 @@ function readPipelineEvent(dbPath: string, runIds: string[]): PipelineEvent | un
     ).get() as unknown as { name: string } | undefined;
     if (!tableCheck) return undefined;
 
-    const hasFilter = runIds.length > 0;
     const placeholders = runIds.map(() => '?').join(', ');
-    const runFilter = hasFilter ? `AND run_id IN (${placeholders})` : '';
+    const runFilter = `AND run_id IN (${placeholders})`;
 
     const stmt = db.prepare(
       `SELECT data FROM events WHERE type = 'plan:pipeline' ${runFilter} LIMIT 1`,
     );
-    const row = (hasFilter ? stmt.get(...runIds) : stmt.get()) as unknown as { data: string } | undefined;
+    const row = stmt.get(...runIds) as unknown as { data: string } | undefined;
     if (!row) return undefined;
 
     return JSON.parse(row.data) as PipelineEvent;
@@ -75,6 +76,7 @@ function readPipelineEvent(dbPath: string, runIds: string[]): PipelineEvent | un
  * Check whether a plan:skip event exists in the monitor DB.
  */
 function hasSkipEvent(dbPath: string, runIds: string[]): boolean {
+  if (runIds.length === 0) return false;
   if (!existsSync(dbPath)) return false;
 
   let db: DatabaseSync;
@@ -90,14 +92,13 @@ function hasSkipEvent(dbPath: string, runIds: string[]): boolean {
     ).get() as unknown as { name: string } | undefined;
     if (!tableCheck) return false;
 
-    const hasFilter = runIds.length > 0;
     const placeholders = runIds.map(() => '?').join(', ');
-    const runFilter = hasFilter ? `AND run_id IN (${placeholders})` : '';
+    const runFilter = `AND run_id IN (${placeholders})`;
 
     const stmt = db.prepare(
       `SELECT COUNT(*) as cnt FROM events WHERE type = 'plan:skip' ${runFilter}`,
     );
-    const row = (hasFilter ? stmt.get(...runIds) : stmt.get()) as unknown as { cnt: number };
+    const row = stmt.get(...runIds) as unknown as { cnt: number };
     return row.cnt > 0;
   } catch {
     return false;
@@ -127,12 +128,13 @@ function flattenBuildStages(defaultBuild: Array<string | string[]>): string[] {
  * Returns the expectations result.
  */
 export function checkExpectations(opts: CheckExpectOpts): ExpectationsResult {
-  const { resultFile, expectConfig, monitorDbPath, runIds } = opts;
+  const { resultFile, expectConfig, monitorDbPath, workspace } = opts;
 
   if (Object.keys(expectConfig).length === 0) {
     return { passed: true, checks: [] };
   }
 
+  const { runIds } = resolveRunIds(monitorDbPath, workspace);
   const checks: ExpectationCheck[] = [];
   const pipeline = readPipelineEvent(monitorDbPath, runIds);
 
@@ -200,10 +202,10 @@ export function checkExpectations(opts: CheckExpectOpts): ExpectationsResult {
 
 // CLI entry point
 if (process.argv[1] && (process.argv[1].endsWith('check-expectations.ts') || process.argv[1].endsWith('check-expectations.js'))) {
-  const [, , resultFile, expectJson, monitorDbPath, ...runIdArgs] = process.argv;
+  const [, , resultFile, expectJson, monitorDbPath, workspace] = process.argv;
 
-  if (!resultFile || !expectJson || !monitorDbPath) {
-    console.error('Usage: check-expectations.ts <result.json> <expect-json> <monitor-db-path> [run-id...]');
+  if (!resultFile || !expectJson || !monitorDbPath || !workspace) {
+    console.error('Usage: check-expectations.ts <result.json> <expect-json> <monitor-db-path> <workspace>');
     process.exit(1);
   }
 
@@ -214,6 +216,6 @@ if (process.argv[1] && (process.argv[1].endsWith('check-expectations.ts') || pro
     // Empty or malformed — no expectations
   }
 
-  const result = checkExpectations({ resultFile, expectConfig, monitorDbPath, runIds: runIdArgs });
+  const result = checkExpectations({ resultFile, expectConfig, monitorDbPath, workspace });
   process.exit(result.passed ? 0 : 1);
 }
