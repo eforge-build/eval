@@ -22,8 +22,11 @@ export interface BuildResultOpts {
 }
 
 /**
- * Resolve the eforge session_id and run_ids associated with a given workspace
- * by querying the shared monitor DB. Returns an empty runIds array if the DB
+ * Resolve eforge run_ids associated with a given workspace by querying the
+ * shared monitor DB. eforge spawns separate sessions per command (enqueue,
+ * compile, build) that share the same cwd, so we collect every run for the
+ * workspace rather than filtering by a single session_id. Returns the earliest
+ * session_id for display purposes. Returns an empty runIds array if the DB
  * does not exist, has no events, or has no rows matching the workspace.
  */
 export function resolveRunIds(
@@ -45,17 +48,14 @@ export function resolveRunIds(
     ).get() as unknown as { name: string } | undefined;
     if (!tableCheck) return { runIds: [] };
 
-    const sessionRow = db.prepare(
-      `SELECT session_id FROM runs WHERE cwd = ? AND session_id IS NOT NULL LIMIT 1`,
-    ).get(workspace) as unknown as { session_id: string } | undefined;
+    const rows = db.prepare(
+      `SELECT id, session_id FROM runs WHERE cwd = ? ORDER BY started_at`,
+    ).all(workspace) as unknown as Array<{ id: string; session_id: string | null }>;
 
-    if (!sessionRow) return { runIds: [] };
+    if (rows.length === 0) return { runIds: [] };
 
-    const runRows = db.prepare(
-      `SELECT id FROM runs WHERE session_id = ?`,
-    ).all(sessionRow.session_id) as unknown as Array<{ id: string }>;
-
-    return { sessionId: sessionRow.session_id, runIds: runRows.map(r => r.id) };
+    const sessionId = rows.find(r => r.session_id)?.session_id ?? undefined;
+    return { sessionId, runIds: rows.map(r => r.id) };
   } catch {
     return { runIds: [] };
   } finally {
