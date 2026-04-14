@@ -62,3 +62,16 @@ variants:
           max:
             provider: llama-cpp
             id: gemma-4
+
+  anthropic-api:
+    envFile: env/anthropic.env
+    configOverlay:
+      backend: pi
+      agents:
+        models:
+          max:
+            provider: anthropic
+            id: claude-opus-4-6
+          balanced:
+            provider: anthropic
+            id: claude-sonnet-4-6
