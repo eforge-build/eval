@@ -16,7 +16,7 @@ import {
 } from 'fs';
 import { join, resolve } from 'path';
 import { tmpdir } from 'os';
-import { mkdtempSync } from 'fs';
+import { mkdtempSync, realpathSync } from 'fs';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { loadScenarios, loadVariants, expandScenarioVariants, deriveGroupId } from './scenarios.js';
 import { buildResult, type BuildResultOpts } from './build-result.js';
@@ -429,7 +429,9 @@ async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
   }
 
   // Step 2: Copy fixture to workspace
-  const workspace = mkdtempSync(join(tmpdir(), `eforge-eval-${expanded.id}-`));
+  // Canonicalize to the realpath form so that it matches how eforge records
+  // `cwd` from inside the spawned child (macOS tmpdir is a symlink to /private/var/...).
+  const workspace = realpathSync(mkdtempSync(join(tmpdir(), `eforge-eval-${expanded.id}-`)));
   log(`  Copying fixture '${scenario.fixture}' to workspace...`);
   cpSync(fixtureDir, workspace, { recursive: true });
   writeFileSync(join(scenarioDir, 'workspace-path.txt'), workspace);
@@ -496,17 +498,6 @@ async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
   const endTime = Date.now();
   const duration = Math.round((endTime - startTime) / 1000);
 
-  // Parse run IDs from eforge log (used for monitor DB queries)
-  const runIds: string[] = [];
-  try {
-    const logContent = readFileSync(logFile, 'utf8');
-    for (const match of logContent.matchAll(/Run:\s+([a-f0-9-]+)/g)) {
-      runIds.push(match[1]);
-    }
-  } catch {
-    // Log may not exist if eforge failed to start
-  }
-
   // Step 6: Build result.json (includes variant config)
   const result = buildResult({
     outputFile: join(scenarioDir, 'result.json'),
@@ -515,9 +506,9 @@ async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
     eforgeCommit,
     exitCode: eforgeExit,
     duration,
-    logFile,
     validation,
     monitorDbPath,
+    workspace,
     variant: {
       name: variant.name,
       configOverlay: variant.configOverlay as Record<string, unknown>,
@@ -533,7 +524,7 @@ async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
       resultFile: join(scenarioDir, 'result.json'),
       expectConfig: expectConfig as ExpectConfig,
       monitorDbPath,
-      runIds,
+      workspace,
     });
     if (expectResult.passed) {
       log(`  Expectations: ${GREEN}all matched${RESET}`);
@@ -579,7 +570,8 @@ function writeErrorResult(scenarioDir: string, id: string, eforgeVersion: string
 }
 
 function cleanupWorkspace(workspace: string): void {
-  if (existsSync(workspace) && workspace.startsWith(tmpdir())) {
+  // Compare against the canonical tmpdir since workspace is realpath-resolved.
+  if (existsSync(workspace) && (workspace.startsWith(tmpdir()) || workspace.startsWith(realpathSync(tmpdir())))) {
     rmSync(workspace, { recursive: true, force: true });
   }
 }

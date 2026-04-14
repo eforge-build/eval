@@ -1,9 +1,9 @@
 #!/usr/bin/env tsx
 // Build a structured result.json from eval scenario output.
-// Usage: npx tsx build-result.ts <output> <scenario> <version> <commit> <exitCode> <duration> <logFile> <validationJson> [monitorDbPath]
+// Usage: npx tsx build-result.ts <output> <scenario> <version> <commit> <exitCode> <duration> <logFile> <validationJson> <workspace> [monitorDbPath]
 
 process.removeAllListeners('warning');
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { writeFileSync, existsSync } from 'fs';
 import { DatabaseSync } from 'node:sqlite';
 import { type AgentAggregate, type ModelAggregate, type PhaseTimestamps, type ReviewIssueDetail, type EvaluationVerdict, type ScenarioMetrics, type ScenarioResult } from './types.js';
 
@@ -14,13 +14,57 @@ export interface BuildResultOpts {
   eforgeCommit: string;
   exitCode: number;
   duration: number;
-  logFile: string;
+  logFile?: string;
   validation: Record<string, { exitCode: number; passed: boolean }>;
   monitorDbPath?: string;
+  workspace: string;
   variant?: { name: string; configOverlay: Record<string, unknown>; envFile?: string };
 }
 
+/**
+ * Resolve the eforge session_id and run_ids associated with a given workspace
+ * by querying the shared monitor DB. Returns an empty runIds array if the DB
+ * does not exist, has no events, or has no rows matching the workspace.
+ */
+export function resolveRunIds(
+  dbPath: string,
+  workspace: string,
+): { sessionId?: string; runIds: string[] } {
+  if (!existsSync(dbPath)) return { runIds: [] };
+
+  let db: DatabaseSync;
+  try {
+    db = new DatabaseSync(dbPath, { readOnly: true });
+  } catch {
+    return { runIds: [] };
+  }
+
+  try {
+    const tableCheck = db.prepare(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='runs'`,
+    ).get() as unknown as { name: string } | undefined;
+    if (!tableCheck) return { runIds: [] };
+
+    const sessionRow = db.prepare(
+      `SELECT session_id FROM runs WHERE cwd = ? AND session_id IS NOT NULL LIMIT 1`,
+    ).get(workspace) as unknown as { session_id: string } | undefined;
+
+    if (!sessionRow) return { runIds: [] };
+
+    const runRows = db.prepare(
+      `SELECT id FROM runs WHERE session_id = ?`,
+    ).all(sessionRow.session_id) as unknown as Array<{ id: string }>;
+
+    return { sessionId: sessionRow.session_id, runIds: runRows.map(r => r.id) };
+  } catch {
+    return { runIds: [] };
+  } finally {
+    db.close();
+  }
+}
+
 function extractMetrics(dbPath: string, runIds: string[]): ScenarioMetrics | undefined {
+  if (runIds.length === 0) return undefined;
   if (!existsSync(dbPath)) return undefined;
 
   let db: DatabaseSync;
@@ -30,10 +74,8 @@ function extractMetrics(dbPath: string, runIds: string[]): ScenarioMetrics | und
     return undefined;
   }
 
-  // Build a run_id filter clause. If no run IDs are known, fall back to unfiltered (best effort).
-  const hasFilter = runIds.length > 0;
   const placeholders = runIds.map(() => '?').join(', ');
-  const runFilter = hasFilter ? `AND run_id IN (${placeholders})` : '';
+  const runFilter = `AND run_id IN (${placeholders})`;
 
   try {
     // Verify the events table exists (DB may be empty if WAL wasn't copied)
@@ -46,7 +88,7 @@ function extractMetrics(dbPath: string, runIds: string[]): ScenarioMetrics | und
     const profileStmt = db.prepare(
       `SELECT data FROM events WHERE type = 'plan:profile' ${runFilter} LIMIT 1`
     );
-    const profileRows = (hasFilter ? profileStmt.all(...runIds) : profileStmt.all()) as unknown as Array<{ data: string }>;
+    const profileRows = profileStmt.all(...runIds) as unknown as Array<{ data: string }>;
     if (profileRows.length > 0) {
       try {
         const parsed = JSON.parse(profileRows[0].data);
@@ -58,7 +100,7 @@ function extractMetrics(dbPath: string, runIds: string[]): ScenarioMetrics | und
     const agentResultStmt = db.prepare(
       `SELECT agent, data FROM events WHERE type = 'agent:result' ${runFilter}`
     );
-    const agentResultRows = (hasFilter ? agentResultStmt.all(...runIds) : agentResultStmt.all()) as unknown as Array<{ agent: string; data: string }>;
+    const agentResultRows = agentResultStmt.all(...runIds) as unknown as Array<{ agent: string; data: string }>;
 
     let totalInput = 0;
     let totalOutput = 0;
@@ -122,7 +164,7 @@ function extractMetrics(dbPath: string, runIds: string[]): ScenarioMetrics | und
     const phaseStmt = db.prepare(
       `SELECT type, data, timestamp FROM events WHERE type IN ('phase:start', 'phase:end') ${runFilter} ORDER BY id`
     );
-    const phaseRows = (hasFilter ? phaseStmt.all(...runIds) : phaseStmt.all()) as unknown as Array<{ type: string; data: string; timestamp: string }>;
+    const phaseRows = phaseStmt.all(...runIds) as unknown as Array<{ type: string; data: string; timestamp: string }>;
 
     const phaseTimestamps: Record<string, PhaseTimestamps> = {};
     const runIdToCommand: Record<string, string> = {};
@@ -161,7 +203,7 @@ function extractMetrics(dbPath: string, runIds: string[]): ScenarioMetrics | und
     const reviewCompleteStmt = db.prepare(
       `SELECT data FROM events WHERE type = 'build:review:complete' ${runFilter}`
     );
-    const reviewCompleteRows = (hasFilter ? reviewCompleteStmt.all(...runIds) : reviewCompleteStmt.all()) as unknown as Array<{ data: string }>;
+    const reviewCompleteRows = reviewCompleteStmt.all(...runIds) as unknown as Array<{ data: string }>;
 
     for (const row of reviewCompleteRows) {
       try {
@@ -189,7 +231,7 @@ function extractMetrics(dbPath: string, runIds: string[]): ScenarioMetrics | und
     const evaluateCompleteStmt = db.prepare(
       `SELECT data FROM events WHERE type = 'build:evaluate:complete' ${runFilter}`
     );
-    const evaluateCompleteRows = (hasFilter ? evaluateCompleteStmt.all(...runIds) : evaluateCompleteStmt.all()) as unknown as Array<{ data: string }>;
+    const evaluateCompleteRows = evaluateCompleteStmt.all(...runIds) as unknown as Array<{ data: string }>;
 
     for (const row of evaluateCompleteRows) {
       try {
@@ -217,7 +259,7 @@ function extractMetrics(dbPath: string, runIds: string[]): ScenarioMetrics | und
     const toolUseStmt = db.prepare(
       `SELECT agent, data FROM events WHERE type = 'agent:tool_use' ${runFilter}`
     );
-    const toolUseRows = (hasFilter ? toolUseStmt.all(...runIds) : toolUseStmt.all()) as unknown as Array<{ agent: string; data: string }>;
+    const toolUseRows = toolUseStmt.all(...runIds) as unknown as Array<{ agent: string; data: string }>;
 
     for (const row of toolUseRows) {
       try {
@@ -255,20 +297,18 @@ function extractMetrics(dbPath: string, runIds: string[]): ScenarioMetrics | und
  * Returns the result object.
  */
 export function buildResult(opts: BuildResultOpts): ScenarioResult {
-  const { outputFile, scenario, eforgeVersion, eforgeCommit, exitCode, duration, logFile, validation, monitorDbPath, variant } = opts;
+  const { outputFile, scenario, eforgeVersion, eforgeCommit, exitCode, duration, logFile, validation, monitorDbPath, workspace, variant } = opts;
+  void logFile;
 
-  // Parse the eforge log to extract run IDs and Langfuse trace ID
-  let langfuseTraceId: string | undefined;
-  const runIds: string[] = [];
-  try {
-    const log = readFileSync(logFile, 'utf8');
-    for (const match of log.matchAll(/Run:\s+([a-f0-9-]+)/g)) {
-      runIds.push(match[1]);
-    }
-    if (runIds.length > 0) langfuseTraceId = runIds[0];
-  } catch {
-    // Log file may not exist if eforge failed to start
+  // Resolve run IDs from the monitor DB by workspace (cwd-based lookup).
+  let sessionId: string | undefined;
+  let runIds: string[] = [];
+  if (monitorDbPath) {
+    const resolved = resolveRunIds(monitorDbPath, workspace);
+    sessionId = resolved.sessionId;
+    runIds = resolved.runIds;
   }
+  const langfuseTraceId = sessionId;
 
   const result: Record<string, unknown> = {
     scenario,
@@ -280,6 +320,7 @@ export function buildResult(opts: BuildResultOpts): ScenarioResult {
     validation,
     durationSeconds: duration,
     ...(langfuseTraceId && { langfuseTraceId }),
+    ...(sessionId && { eforgeSessionId: sessionId }),
   };
 
   // Extract metrics from monitor DB if available
@@ -296,8 +337,13 @@ export function buildResult(opts: BuildResultOpts): ScenarioResult {
 
 // CLI entry point
 if (process.argv[1] && (process.argv[1].endsWith('build-result.ts') || process.argv[1].endsWith('build-result.js'))) {
-  const [, , outputFile, scenario, eforgeVersion, eforgeCommit, exitCodeStr, durationStr, logFile, validationJson, monitorDbPath] =
+  const [, , outputFile, scenario, eforgeVersion, eforgeCommit, exitCodeStr, durationStr, logFile, validationJson, workspace, monitorDbPath] =
     process.argv;
+
+  if (!workspace) {
+    console.error('Usage: build-result.ts <output> <scenario> <version> <commit> <exitCode> <duration> <logFile> <validationJson> <workspace> [monitorDbPath]');
+    process.exit(1);
+  }
 
   let validation: Record<string, { exitCode: number; passed: boolean }> = {};
   try {
@@ -315,6 +361,7 @@ if (process.argv[1] && (process.argv[1].endsWith('build-result.ts') || process.a
     duration: parseInt(durationStr, 10),
     logFile,
     validation,
+    workspace,
     monitorDbPath,
   });
 }

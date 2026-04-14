@@ -77,6 +77,7 @@ export interface ScenarioResult {
   eforgeExitCode: number;
   validation: Record<string, { passed: boolean }>;
   durationSeconds: number;
+  eforgeSessionId?: string;
   metrics?: ScenarioMetrics;
   expectations?: {
     passed: boolean;
