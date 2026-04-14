@@ -45,15 +45,17 @@ export function resolveRunIds(
     ).get() as unknown as { name: string } | undefined;
     if (!tableCheck) return { runIds: [] };
 
-    const rows = db.prepare(
-      `SELECT id, session_id FROM runs WHERE cwd = ? ORDER BY started_at`,
-    ).all(workspace) as unknown as Array<{ id: string; session_id: string }>;
+    const sessionRow = db.prepare(
+      `SELECT session_id FROM runs WHERE cwd = ? AND session_id IS NOT NULL LIMIT 1`,
+    ).get(workspace) as unknown as { session_id: string } | undefined;
 
-    if (rows.length === 0) return { runIds: [] };
+    if (!sessionRow) return { runIds: [] };
 
-    const sessionId = rows[0].session_id;
-    const runIds = rows.map(r => r.id);
-    return { sessionId, runIds };
+    const runRows = db.prepare(
+      `SELECT id FROM runs WHERE session_id = ?`,
+    ).all(sessionRow.session_id) as unknown as Array<{ id: string }>;
+
+    return { sessionId: sessionRow.session_id, runIds: runRows.map(r => r.id) };
   } catch {
     return { runIds: [] };
   } finally {
