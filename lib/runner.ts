@@ -254,8 +254,11 @@ function groupByCompareGroup(expanded: ExpandedScenario[]): ScenarioGroup[] {
 
 async function startMonitor(eforgeBin: string): Promise<string | undefined> {
   try {
+    // Run monitor from RESULTS_DIR so its daemon.lock lives at results/.eforge/,
+    // isolated from any user-level daemon that may be running in the eval root
+    // (e.g., auto-started by the eforge MCP server when /eforge:build is invoked).
     const child = spawn(eforgeBin, ['monitor'], {
-      cwd: SCRIPT_DIR,
+      cwd: RESULTS_DIR,
       detached: true,
       stdio: 'ignore',
     });
@@ -264,7 +267,7 @@ async function startMonitor(eforgeBin: string): Promise<string | undefined> {
     // Give monitor a moment to write its lock file
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
-    const lockPath = join(SCRIPT_DIR, '.eforge', 'daemon.lock');
+    const lockPath = join(RESULTS_DIR, '.eforge', 'daemon.lock');
     if (existsSync(lockPath)) {
       const lock = JSON.parse(readFileSync(lockPath, 'utf8'));
       if (typeof lock.port === 'number') {
