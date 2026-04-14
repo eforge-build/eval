@@ -14,7 +14,7 @@ export interface BuildResultOpts {
   eforgeCommit: string;
   exitCode: number;
   duration: number;
-  logFile: string;
+  logFile?: string;
   validation: Record<string, { exitCode: number; passed: boolean }>;
   monitorDbPath?: string;
   workspace: string;
