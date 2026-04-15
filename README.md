@@ -77,9 +77,12 @@ scenarios:
     expect:                    # Optional
       mode: errand
       buildStagesContain: [implement]
+      # skip: true             # Opt in when the PRD is expected to be already satisfied
 ```
 
 Create the fixture under `fixtures/my-fixture/` with source code and the PRD file.
+
+Expectation checks are recorded on `result.json` under `expectations.checks`. `mode` and build-stage checks are informational (judgment calls). The `skip` check is a **gating** expectation: a mismatch fails the scenario. Scenarios that set `expect.mode` or declare non-empty `validate` steps implicitly expect `skip: false`; the synthesized check is tagged `implicit: true` on `result.json` so you can tell it apart from an explicit `expect.skip`.
 
 ### Variant matrix
 
