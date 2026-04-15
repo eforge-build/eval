@@ -66,6 +66,7 @@ export interface ExpectationCheck {
   passed: boolean;
   expected: unknown;
   actual: unknown;
+  implicit?: boolean;
 }
 
 export interface ScenarioResult {
