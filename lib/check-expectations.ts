@@ -28,6 +28,7 @@ export interface CheckExpectOpts {
   expectConfig: ExpectConfig;
   monitorDbPath: string;
   workspace: string;
+  hasValidateSteps: boolean;
 }
 
 interface PipelineEvent {
@@ -128,9 +129,12 @@ function flattenBuildStages(defaultBuild: Array<string | string[]>): string[] {
  * Returns the expectations result.
  */
 export function checkExpectations(opts: CheckExpectOpts): ExpectationsResult {
-  const { resultFile, expectConfig, monitorDbPath, workspace } = opts;
+  const { resultFile, expectConfig, monitorDbPath, workspace, hasValidateSteps } = opts;
 
-  if (Object.keys(expectConfig).length === 0) {
+  // We still need to run if implicit skip=false would apply, even with no explicit expectConfig.
+  const implicitSkipApplies =
+    expectConfig.skip === undefined && (expectConfig.mode !== undefined || hasValidateSteps);
+  if (Object.keys(expectConfig).length === 0 && !implicitSkipApplies) {
     return { passed: true, checks: [] };
   }
 
@@ -175,7 +179,11 @@ export function checkExpectations(opts: CheckExpectOpts): ExpectationsResult {
     });
   }
 
-  // Check skip
+  // Check skip (explicit or implicit).
+  // An implicit skip=false check is synthesized when the scenario has evidence it
+  // expected real work (expect.mode defined or non-empty validate steps) but did
+  // not explicitly declare expect.skip. A skip mismatch is a factual mismatch, so
+  // this check gates scenario pass/fail (see isScenarioPassed in runner.ts).
   if (expectConfig.skip !== undefined) {
     const skipped = hasSkipEvent(monitorDbPath, runIds);
     checks.push({
@@ -183,6 +191,16 @@ export function checkExpectations(opts: CheckExpectOpts): ExpectationsResult {
       passed: skipped === expectConfig.skip,
       expected: expectConfig.skip,
       actual: skipped,
+      implicit: false,
+    });
+  } else if (implicitSkipApplies) {
+    const skipped = hasSkipEvent(monitorDbPath, runIds);
+    checks.push({
+      check: 'skip',
+      passed: !skipped,
+      expected: false,
+      actual: skipped,
+      implicit: true,
     });
   }
 
@@ -216,6 +234,7 @@ if (process.argv[1] && (process.argv[1].endsWith('check-expectations.ts') || pro
     // Empty or malformed — no expectations
   }
 
-  const result = checkExpectations({ resultFile, expectConfig, monitorDbPath, workspace });
+  const hasValidateSteps = process.env.HAS_VALIDATE_STEPS === '1';
+  const result = checkExpectations({ resultFile, expectConfig, monitorDbPath, workspace, hasValidateSteps });
   process.exit(result.passed ? 0 : 1);
 }

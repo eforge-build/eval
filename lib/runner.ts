@@ -138,9 +138,19 @@ Environment:
 function isScenarioPassed(r: ScenarioResult): boolean {
   const eforgeOk = r.eforgeExitCode === 0;
   const validateOk = Object.values(r.validation || {}).every((v) => v.passed);
-  // Expectations (mode, build stages) are informational — reported as observations,
-  // not pass/fail gates. Mode selection and pipeline shape are judgment calls.
-  return eforgeOk && validateOk;
+  // `skip` is a gating expectation: a skip mismatch (expected real work, got a
+  // plan:skip — or vice versa) is a factual mismatch, not a judgment call, so any
+  // failed `skip` check fails the scenario. This covers both explicit
+  // `expect.skip` entries and implicit `skip: false` checks synthesized by
+  // check-expectations.ts when the scenario shows it expected real work.
+  //
+  // Other expectations (`mode`, `buildStagesContain`, `buildStagesExclude`) remain
+  // informational — reported as observations, not pass/fail gates, because mode
+  // selection and pipeline shape are judgment calls.
+  const skipOk = !(r.expectations?.checks ?? []).some(
+    (c) => c.check === 'skip' && c.passed === false,
+  );
+  return eforgeOk && validateOk && skipOk;
 }
 
 // --- Eforge version parsing ---
@@ -521,13 +531,19 @@ async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
 
   // Step 7: Check expectations
   const expectConfig = scenario.expect ?? {};
-  if (Object.keys(expectConfig).length > 0) {
+  const hasValidateSteps = (scenario.validate?.length ?? 0) > 0;
+  // Always run if there are explicit expectations, or if an implicit skip=false
+  // check may be synthesized (expect.mode defined or validate steps exist).
+  const implicitSkipPossible =
+    expectConfig.skip === undefined && (expectConfig.mode !== undefined || hasValidateSteps);
+  if (Object.keys(expectConfig).length > 0 || implicitSkipPossible) {
     log('  Checking expectations...');
     const expectResult = checkExpectations({
       resultFile: join(scenarioDir, 'result.json'),
       expectConfig: expectConfig as ExpectConfig,
       monitorDbPath,
       workspace,
+      hasValidateSteps,
     });
     if (expectResult.passed) {
       log(`  Expectations: ${GREEN}all matched${RESET}`);
