@@ -1,6 +1,8 @@
 # Opus 4.7 Day-of-Release Eval (2026-04-16)
 
-Same-day first-look eval data following Anthropic's release of Claude Opus 4.7. Three variants compared across three scales on the eforge evaluation framework.
+Same-day first-look eval data following Anthropic's release of Claude Opus 4.7. Three variants compared across three scales on the [eforge](https://github.com/eforge-build/eforge) evaluation framework.
+
+[eforge](https://github.com/eforge-build/eforge) is an open-source agentic build system that sizes work, decomposes plans, spawns agents, arbitrates review, and delegates execution to a configurable backend. This eval compares two backends (Pi, Claude Agent SDK) across Opus 4.6 and 4.7.
 
 ## Variants
 
