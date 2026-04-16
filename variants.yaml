@@ -63,6 +63,16 @@ variants:
             provider: llama-cpp
             id: gemma-4
 
+  pi-free:
+    envFile: env/pi.env
+    configOverlay:
+      backend: pi
+      agents:
+        models:
+          max:
+            provider: openrouter
+            id: openrouter/free
+
   anthropic-api:
     envFile: env/anthropic.env
     configOverlay:
