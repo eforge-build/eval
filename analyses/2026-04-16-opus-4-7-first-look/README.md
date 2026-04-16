@@ -10,7 +10,7 @@ Same-day first-look eval data following Anthropic's release of Claude Opus 4.7. 
 | `anthropic-api-4-6` | pi | `claude-opus-4-6` | `claude-sonnet-4-6` |
 | `claude-sdk` | Claude Agent SDK | `claude-opus-4-7` | `claude-sonnet-4-6` |
 
-`balanced` is invoked only by `prd-validator`. Per-agent model routing was held constant within each backend. The `claude-sdk` variant additionally routes some minor internal path to `claude-haiku-4-5-20251001` — this routing is performed by the SDK itself, not configured in eforge (see "What replicated" below).
+`balanced` is invoked only by `prd-validator`. Per-agent model routing was held constant within each backend. The `claude-sdk` variant additionally routes `pipeline-composer` to `claude-haiku-4-5-20251001` — this routing is performed by the SDK itself, not configured in eforge. The composer is a high-leverage stage (it sets scope/stages for the whole run), so this is not a minor routing detail — see "What replicated" below.
 
 ## Scales and scenarios
 
@@ -20,7 +20,7 @@ Same-day first-look eval data following Anthropic's release of Claude Opus 4.7. 
 | Light excursion | `todo-api-excursion-jwt-auth` — add JWT auth | 1 | [`excursion-jwt-auth.md`](./excursion-jwt-auth.md) |
 | Heavy excursion | `workspace-api-excursion-engagement` — reactions, threads, pins across 4 parallel plans (same scenario used in [yesterday's harness-backends eval](../2026-04-14-harness-backends/)) | 1 cross-run set (see version confound below) | [`excursion-workspace-engagement.md`](./excursion-workspace-engagement.md) |
 
-Cost range spans two orders of magnitude across scales ($0.47 on cheapest errand variant to $15.43 on heaviest excursion variant), so "excursion" is decomposed into light and heavy tiers for this report.
+Cost spans roughly 30× across scales ($0.47 on cheapest errand variant to $15.43 on heaviest excursion variant), so "excursion" is decomposed into light and heavy tiers for this report.
 
 ## Raw data
 
@@ -48,7 +48,7 @@ Cost range spans two orders of magnitude across scales ($0.47 on cheapest errand
 - SDK / 4.7 Pi mean tokens, runs 4–7 (n=4 common): **3.37×**
 - Mean cache hit rate: 4.7 Pi 84%, 4.6 Pi 73%, SDK 86%
 
-SDK achieves the highest cache hit rate at every scale but still costs 2.4–5× more than Pi on the same model — raw input volume outruns the caching advantage. Cache efficiency is not a cost-efficiency proxy.
+SDK has the highest cache hit rate at errand and light excursion (86% vs 84%; 91% vs 88%) and ties 4.6 Pi within 2pp at heavy excursion (89% vs 87%). It still costs multiples of Pi on comparable scenarios (per-run ratios vary — see scorecards) — raw input volume outruns the caching advantage. Cache efficiency is not a cost-efficiency proxy.
 
 ### Light excursion — `todo-api-excursion-jwt-auth` (n=1, run 17:10:03)
 
@@ -70,7 +70,7 @@ SDK achieves the highest cache hit rate at every scale but still costs 2.4–5×
 
 ## What replicated
 
-**1. SDK cost premium at every scale.** `claude-sdk` cost 2.4–4.8× more than the Pi backend on the same model family, on every run. Consistent with the [2026-04-14 harness-backends eval](../2026-04-14-harness-backends/) and the accompanying [blog post](https://www.markschaake.com/posts/eval-eforge-harness-backends/).
+**1. SDK cost premium at every scale.** `claude-sdk` cost more than the Pi backend on every scenario. At mean across the 4 errand runs where all three variants ran, SDK / 4.7-Pi cost ratio was ~2.6× and SDK / 4.6-Pi was ~3.2×; per-run same-model ratios (SDK 4.7 vs Pi 4.7) spanned 1.0×–4.5×. At light excursion, SDK / 4.7-Pi was 2.4×. Consistent with the [2026-04-14 harness-backends eval](../2026-04-14-harness-backends/) and the accompanying [blog post](https://www.markschaake.com/posts/eval-eforge-harness-backends/).
 
 **2. SDK composer over-scoping via SDK-internal haiku delegation.** The `claude-sdk` variant's `pipeline-composer` runs on `claude-haiku-4-5` — a delegation performed by the SDK, not configured in eforge. On the errand scenario, the haiku-routed composer over-scoped to `excursion` on multiple runs. On the light excursion, it added a `doc-update` stage to a fixture with no project documentation. This extends the 2026-04-14 "SDK silently dispatches a second model" finding: the same delegation pattern is now observed at a second stage (pipeline-composer, not just planner), and the upfront scope/stage decision has higher downstream leverage than the planner delegation noted yesterday.
 
@@ -85,7 +85,7 @@ Decision-quality findings disagreed between the light and heavy excursion runs:
 | Decision quality winner | `anthropic-api` (4.7 Pi) | `anthropic-api-4-6` (4.6 Pi) |
 | 4.7 Pi reviewer behavior | caught real subtle issues (`String(sub)` coercion, missing `exp` enforcement) | saw the same PATCH-undefined bug 4.6 flagged `critical`, down-weighted it to `suggestion` |
 | 4.6 Pi reviewer behavior | 3-round loop re-raising the same rejected issue | found 2 real bugs, escalated severity correctly |
-| Builder efficiency winner | 4.6 Pi (8 turns / 84K tokens) vs 4.7 Pi (25 turns / 433K tokens) — ~5× | 4.7 Pi ($2.48) vs 4.6 Pi ($6.40) — ~2.6× |
+| Builder efficiency winner | 4.6 Pi (8 turns / 84K tokens) vs 4.7 Pi (25 turns / 433K tokens) — ~5× | 4.7 Pi vs 4.6 Pi on builder + test stages combined: ~$2.9 vs ~$6.4 — ~2.2× (see heavy-excursion scorecard; the two variants composed different pipelines, so the numerator differs in what's included) |
 
 Both "4.7 has sharper judgment" and "4.6 has sharper judgment" positions find n=1 support. Which one you'd publish depends entirely on which excursion you ran. This is the pattern the 2026-04-14 post [specifically warned about](https://www.markschaake.com/posts/eval-eforge-harness-backends/).
 
@@ -97,7 +97,7 @@ Both "4.7 has sharper judgment" and "4.6 has sharper judgment" positions find n=
 
 ## Methodological note
 
-The [2026-04-14 harness-backends post](https://www.markschaake.com/posts/eval-eforge-harness-backends/) concluded that behavioral metrics on excursion-scale scenarios do not reliably replicate at small sample sizes, and warned that single-run quality claims reverse direction between runs. Today's data is a textbook case of that pattern: every behavioral-quality comparison between 4.7 and 4.6 that looked clean after one excursion run disagreed with the next. Token and cost metrics remained stable, same as yesterday.
+The [2026-04-14 harness-backends post](https://www.markschaake.com/posts/eval-eforge-harness-backends/) concluded that behavioral metrics on excursion-scale scenarios do not reliably replicate at small sample sizes, and warned that single-run quality claims reverse direction between runs. Today's data (n=2 excursion comparisons, light and heavy) is consistent with that warning: the two behavioral-quality comparisons between 4.7 and 4.6 disagreed on the decision-quality winner. Token and cost metrics remained stable, same as yesterday.
 
 No 4.7-vs-4.6 quality claim is published here. The per-scenario analyses are the primary artifact. Readers who want a clean model comparison should re-run the heavy excursion on matched eforge versions with n ≥ 3 per variant before drawing conclusions.
 
