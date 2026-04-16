@@ -81,6 +81,19 @@ variants:
         models:
           max:
             provider: anthropic
+            id: claude-opus-4-7
+          balanced:
+            provider: anthropic
+            id: claude-sonnet-4-6
+
+  anthropic-api-4-6:
+    envFile: env/anthropic.env
+    configOverlay:
+      backend: pi
+      agents:
+        models:
+          max:
+            provider: anthropic
             id: claude-opus-4-6
           balanced:
             provider: anthropic
