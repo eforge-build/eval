@@ -12,13 +12,14 @@ export interface BuildResultOpts {
   scenario: string;
   eforgeVersion: string;
   eforgeCommit: string;
+  eforgeDirty?: boolean;
   exitCode: number;
   duration: number;
   logFile?: string;
   validation: Record<string, { exitCode: number; passed: boolean }>;
   monitorDbPath?: string;
   workspace: string;
-  variant?: { name: string; configOverlay: Record<string, unknown>; envFile?: string };
+  backend?: { name: string; profile: Record<string, unknown>; envFile?: string };
 }
 
 /**
@@ -297,7 +298,7 @@ function extractMetrics(dbPath: string, runIds: string[]): ScenarioMetrics | und
  * Returns the result object.
  */
 export function buildResult(opts: BuildResultOpts): ScenarioResult {
-  const { outputFile, scenario, eforgeVersion, eforgeCommit, exitCode, duration, logFile, validation, monitorDbPath, workspace, variant } = opts;
+  const { outputFile, scenario, eforgeVersion, eforgeCommit, eforgeDirty, exitCode, duration, logFile, validation, monitorDbPath, workspace, backend } = opts;
   void logFile;
 
   // Resolve run IDs from the monitor DB by workspace (cwd-based lookup).
@@ -312,10 +313,11 @@ export function buildResult(opts: BuildResultOpts): ScenarioResult {
 
   const result: Record<string, unknown> = {
     scenario,
-    ...(variant && { variant }),
+    ...(backend && { backend }),
     timestamp: new Date().toISOString(),
     eforgeVersion,
     eforgeCommit,
+    ...(eforgeDirty && { eforgeDirty: true }),
     eforgeExitCode: exitCode,
     validation,
     durationSeconds: duration,

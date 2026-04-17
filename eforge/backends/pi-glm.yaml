@@ -1,0 +1,6 @@
+backend: pi
+agents:
+  models:
+    max:
+      provider: openrouter
+      id: z-ai/glm-5.1

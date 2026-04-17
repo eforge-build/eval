@@ -8,13 +8,14 @@ import { z } from 'zod';
 import { spawn } from 'child_process';
 import { readFileSync, readdirSync, existsSync } from 'fs';
 import { join, resolve } from 'path';
-import { loadScenarios, loadVariants } from '../lib/scenarios.js';
+import { loadScenarios, loadBackends } from '../lib/scenarios.js';
 
 const PROJECT_ROOT = resolve(import.meta.dirname, '..');
 const RESULTS_DIR = join(PROJECT_ROOT, 'results');
 const RUN_SCRIPT = join(PROJECT_ROOT, 'run.sh');
 const SCENARIOS_FILE = join(PROJECT_ROOT, 'scenarios.yaml');
-const VARIANTS_FILE = join(PROJECT_ROOT, 'variants.yaml');
+const BACKENDS_DIR = join(PROJECT_ROOT, 'eforge', 'backends');
+const BACKEND_ENVS_FILE = join(PROJECT_ROOT, 'backend-envs.yaml');
 const DAEMON_LOCK = join(PROJECT_ROOT, '.eforge', 'daemon.lock');
 
 const server = new McpServer({
@@ -52,18 +53,17 @@ server.tool(
   },
 );
 
-// --- Tool: eval_variants ---
+// --- Tool: eval_backends ---
 server.tool(
-  'eval_variants',
-  'List available config variants from variants.yaml.',
+  'eval_backends',
+  'List available backend profiles from eforge/backends/ (merged with backend-envs.yaml for env-file mappings).',
   {},
   async () => {
-    const variants = loadVariants(VARIANTS_FILE).map((v) => ({
-      name: v.name,
-      configOverlay: v.configOverlay,
-      envFile: v.envFile,
+    const backends = loadBackends(BACKENDS_DIR, BACKEND_ENVS_FILE).map((b) => ({
+      name: b.name,
+      envFile: b.envFile,
     }));
-    return { content: [{ type: 'text', text: JSON.stringify(variants) }] };
+    return { content: [{ type: 'text', text: JSON.stringify(backends) }] };
   },
 );
 
@@ -73,12 +73,12 @@ server.tool(
   'Spawn an eval run. Returns immediately with a runId (timestamp). Use eval_run_status to check completion.',
   {
     scenarios: z.array(z.string()).optional().describe('Optional list of scenario IDs to run (prefix match supported)'),
-    variant: z.string().describe('Comma-separated variant names to run (e.g. "claude-sdk" or "claude-sdk,pi-codex")'),
+    backend: z.string().describe('Comma-separated backend profile names to run (e.g. "claude-sdk" or "claude-sdk,pi-codex")'),
     repeat: z.number().optional().describe('Number of times to repeat each scenario'),
     compare: z.string().optional().describe('Timestamp of a previous run to compare against'),
   },
-  async ({ scenarios, variant, repeat, compare }) => {
-    const args: string[] = ['--variant', variant];
+  async ({ scenarios, backend, repeat, compare }) => {
+    const args: string[] = ['--backend', backend];
 
     if (repeat && repeat > 1) {
       args.push('--repeat', String(repeat));
@@ -358,7 +358,7 @@ server.tool(
 // --- Tool: eval_compare ---
 server.tool(
   'eval_compare',
-  'Return the variant comparison report for a given run.',
+  'Return the backend comparison report for a given run.',
   {
     timestamp: z.string().describe('The run timestamp'),
   },
@@ -370,7 +370,7 @@ server.tool(
           {
             type: 'text',
             text: JSON.stringify({
-              error: `No comparison.json found for run ${timestamp}. This may be a single-variant run with no comparisons.`,
+              error: `No comparison.json found for run ${timestamp}. This may be a single-backend run with no comparisons.`,
             }),
           },
         ],

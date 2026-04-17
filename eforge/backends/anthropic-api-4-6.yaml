@@ -1,0 +1,9 @@
+backend: pi
+agents:
+  models:
+    max:
+      provider: anthropic
+      id: claude-opus-4-6
+    balanced:
+      provider: anthropic
+      id: claude-sonnet-4-6

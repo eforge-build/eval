@@ -17,11 +17,11 @@ End-to-end evaluation harness for [eforge](https://github.com/eforge-build/eforg
 ```bash
 pnpm install                                              # Install dependencies
 pnpm type-check                                           # TypeScript type-check (lib/**/*.ts)
-./run.sh --variant claude-sdk --all                       # Run all scenarios with claude-sdk
-./run.sh --variant claude-sdk <scenario-id>               # Run a single scenario
-./run.sh --variant claude-sdk,pi-nemotron <scenario-id>   # Run with multiple variants (parallel)
-./run.sh --variant claude-sdk --dry-run                   # Set up workspaces without running eforge
-./run.sh --variant claude-sdk --env-file .env             # Source env vars (e.g. Langfuse credentials)
+./run.sh --backend claude-sdk --all                       # Run all scenarios with claude-sdk
+./run.sh --backend claude-sdk <scenario-id>               # Run a single scenario
+./run.sh --backend claude-sdk,pi-nemotron <scenario-id>   # Run with multiple backends (parallel)
+./run.sh --backend claude-sdk --dry-run                   # Set up workspaces without running eforge
+./run.sh --backend claude-sdk --env-file .env             # Source env vars (e.g. Langfuse credentials)
 ./run.sh --cleanup                                        # Remove all results
 ```
 
@@ -30,26 +30,31 @@ pnpm type-check                                           # TypeScript type-chec
 The harness is a TypeScript pipeline:
 
 1. **`run.sh`** — Thin wrapper that delegates to `npx tsx lib/runner.ts`.
-2. **`scenarios.yaml`** — Defines **what to build**: fixture, PRD, validation commands, and behavioral expectations. Contains no backend/variant configuration.
-3. **`variants.yaml`** — Defines **how to build**: named config variants with `configOverlay` (backend, model) and optional `envFile`. Applied at run time via `--variant`.
-4. **`lib/runner.ts`** — Main orchestrator. Cross-products scenarios with selected variants, groups variants of the same scenario for parallel execution, runs eforge, validates, and checks expectations.
-5. **`lib/build-result.ts`** — Builds `result.json` from eforge logs and the shared SQLite monitor DB (`results/monitor.db`). Extracts token usage, cost, phase durations, per-agent/per-model breakdowns, review metrics, and the variant config used.
-6. **`lib/check-expectations.ts`** — Checks scenario expectations (mode, build stages, skip) against monitor DB. Writes an `expectations` key into `result.json`.
-7. **`lib/compare.ts`** — Side-by-side variant comparison across eight dimensions (cost, tokens, duration, etc.).
+2. **`scenarios.yaml`** — Defines **what to build**: fixture, PRD, validation commands, and behavioral expectations. Contains no backend configuration.
+3. **`eforge/backends/*.yaml`** — Defines **how to build**: one plain eforge [backend profile](../eforge/packages/engine/src/config.ts) file per backend (e.g. `claude-sdk.yaml`, `pi-nemotron.yaml`). Names come from filenames; selected at run time via `--backend`.
+4. **`backend-envs.yaml`** — Maps backend names to env files (for API keys etc.). Backends without an entry here run without a custom env file.
+5. **`lib/runner.ts`** — Main orchestrator. Cross-products scenarios with selected backends, groups backends of the same scenario for parallel execution, pins the backend profile into each workspace, runs eforge, validates, and checks expectations.
+6. **`lib/build-result.ts`** — Builds `result.json` from eforge logs and the shared SQLite monitor DB (`results/monitor.db`). Extracts token usage, cost, phase durations, per-agent/per-model breakdowns, review metrics, and the backend profile used.
+7. **`lib/check-expectations.ts`** — Checks scenario expectations (mode, build stages, skip) against monitor DB. Writes an `expectations` key into `result.json`.
+8. **`lib/compare.ts`** — Side-by-side backend comparison across eight dimensions (cost, tokens, duration, etc.).
+
+### Backend isolation
+
+Eforge resolves the active backend profile via a 5-step precedence chain: project marker → project config → user marker (`~/.config/eforge/.active-backend`) → user config → none. The eval runner pins the selected backend at **step 1** by copying its profile into each temp workspace's `eforge/backends/` and writing `eforge/.active-backend`. This isolates eval results from whatever a developer has configured at user scope.
 
 ### Data flow
 
 ```
-scenarios.yaml ─┐
-                 ├─► runner.ts ─► cross-product ─► for each (scenario, variant):
-variants.yaml ──┘                                    ├─ copy fixture to /tmp
-                                                     ├─ apply variant configOverlay
-                                                     ├─ eforge run <prd>
-                                                     ├─ validation commands
-                                                     ├─ build-result.ts (reads monitor.db)
-                                                     ├─ check-expectations.ts
-                                                     └─ results/<timestamp>/<id>/result.json
-                                                  ─► summary.json + comparison.json
+scenarios.yaml ────┐
+                    ├─► runner.ts ─► cross-product ─► for each (scenario, backend):
+eforge/backends/ ──┤                                    ├─ copy fixture to /tmp
+backend-envs.yaml ─┘                                    ├─ copy backend profile + write .active-backend
+                                                        ├─ eforge run <prd>
+                                                        ├─ validation commands
+                                                        ├─ build-result.ts (reads monitor.db)
+                                                        ├─ check-expectations.ts
+                                                        └─ results/<timestamp>/<id>/result.json
+                                                     ─► summary.json + comparison.json
 ```
 
 ### Fixtures
@@ -67,4 +72,4 @@ Scenarios can define `expect` in `scenarios.yaml` to assert behavioral propertie
 
 ### Results
 
-Results are gitignored. Each run creates `results/<timestamp>/` containing per-scenario `result.json`, `eforge.log`, validation logs, and an aggregate `summary.json`. Old runs are pruned to keep the most recent 50. Each `result.json` includes the full variant config used for reproducibility.
+Results are gitignored. Each run creates `results/<timestamp>/` containing per-scenario `result.json`, `eforge.log`, validation logs, and an aggregate `summary.json`. Old runs are pruned to keep the most recent 50. Each `result.json` records the backend name + full profile used for reproducibility.

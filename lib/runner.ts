@@ -17,8 +17,8 @@ import {
 import { join, resolve } from 'path';
 import { tmpdir } from 'os';
 import { mkdtempSync, realpathSync } from 'fs';
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { loadScenarios, loadVariants, expandScenarioVariants, deriveGroupId } from './scenarios.js';
+import { parse as parseYaml } from 'yaml';
+import { loadScenarios, loadBackends, expandScenarioBackends, deriveGroupId } from './scenarios.js';
 import { buildResult, type BuildResultOpts } from './build-result.js';
 import { checkExpectations, type ExpectConfig } from './check-expectations.js';
 import type { ExpandedScenario, ScenarioResult } from './types.js';
@@ -29,7 +29,8 @@ const SCRIPT_DIR = resolve(import.meta.dirname, '..');
 const FIXTURES_DIR = join(SCRIPT_DIR, 'fixtures');
 const RESULTS_DIR = join(SCRIPT_DIR, 'results');
 const SCENARIOS_FILE = join(SCRIPT_DIR, 'scenarios.yaml');
-const VARIANTS_FILE = join(SCRIPT_DIR, 'variants.yaml');
+const BACKENDS_DIR = join(SCRIPT_DIR, 'eforge', 'backends');
+const BACKEND_ENVS_FILE = join(SCRIPT_DIR, 'backend-envs.yaml');
 const MAX_RUNS = 50;
 
 // --- ANSI colors ---
@@ -44,7 +45,7 @@ const RED = '\x1b[31m';
 
 interface RunArgs {
   filters: string[];
-  variantNames: string[];
+  backendNames: string[];
   repeatCount: number;
   compareTimestamp: string;
   envFile: string;
@@ -55,7 +56,7 @@ interface RunArgs {
 function parseArgs(argv: string[]): RunArgs {
   const args: RunArgs = {
     filters: [],
-    variantNames: [],
+    backendNames: [],
     repeatCount: 1,
     compareTimestamp: '',
     envFile: '',
@@ -93,10 +94,10 @@ function parseArgs(argv: string[]): RunArgs {
         args.all = true;
         i++;
         break;
-      case '--variant':
-      case '--variants':
-        if (i + 1 >= rest.length) { console.error('Error: --variant requires a comma-separated list'); process.exit(1); }
-        args.variantNames = rest[i + 1].split(',').map((v) => v.trim());
+      case '--backend':
+      case '--backends':
+        if (i + 1 >= rest.length) { console.error('Error: --backend requires a comma-separated list'); process.exit(1); }
+        args.backendNames = rest[i + 1].split(',').map((v) => v.trim());
         i += 2;
         break;
       case '--help':
@@ -112,15 +113,17 @@ function parseArgs(argv: string[]): RunArgs {
 }
 
 function printHelp(): void {
-  console.log(`Usage: run.sh --variant NAME[,NAME] [OPTIONS] SCENARIO_ID [SCENARIO_ID...]
-       run.sh --variant NAME[,NAME] --all [OPTIONS]
+  console.log(`Usage: run.sh --backend NAME[,NAME] [OPTIONS] SCENARIO_ID [SCENARIO_ID...]
+       run.sh --backend NAME[,NAME] --all [OPTIONS]
 
-Runs eval scenarios with the specified config variant(s).
-Scenarios are defined in scenarios.yaml, variants in variants.yaml.
-When multiple variants are specified, they run in parallel for each scenario.
+Runs eval scenarios with the specified backend profile(s).
+Scenarios are defined in scenarios.yaml; backend profiles are plain eforge
+profile files in eforge/backends/. Env-file associations live in
+backend-envs.yaml. When multiple backends are specified, they run in parallel
+for each scenario.
 
 Options:
-  --variant LIST         Comma-separated variant names to run (required, e.g. claude-sdk,pi-codex)
+  --backend LIST         Comma-separated backend profile names to run (required, e.g. claude-sdk,pi-codex)
   --all                  Run all scenarios
   --dry-run              Set up workspaces but skip eforge and validation
   --env-file FILE        Source environment variables (e.g. Langfuse credentials)
@@ -155,17 +158,18 @@ function isScenarioPassed(r: ScenarioResult): boolean {
 
 // --- Eforge version parsing ---
 
-function parseEforgeVersion(eforgeBin: string): { version: string; commit: string } {
+function parseEforgeVersion(eforgeBin: string): { version: string; commit: string; dirty: boolean } {
   try {
     const output = execSync(`${eforgeBin} --version`, { encoding: 'utf8' }).trim();
-    // Expected format: "eforge X.Y.Z (abc1234)" or just "X.Y.Z"
+    // Expected format: "X.Y.Z (abc1234)", "X.Y.Z-dirty (abc1234)", or just "X.Y.Z"
     const commitMatch = output.match(/\(([a-f0-9]+)\)/);
     return {
       version: output,
       commit: commitMatch?.[1] ?? '',
+      dirty: /-dirty\b/.test(output),
     };
   } catch {
-    return { version: 'unknown', commit: '' };
+    return { version: 'unknown', commit: '', dirty: false };
   }
 }
 
@@ -290,15 +294,38 @@ async function startMonitor(eforgeBin: string): Promise<string | undefined> {
   return undefined;
 }
 
-// --- Config overlay ---
+// --- Backend profile pin ---
 
-function applyConfigOverlay(workspace: string, overlay: ExpandedScenario['variant']['configOverlay']): void {
-  if (!overlay || Object.keys(overlay).length === 0) return;
+// Copies the named backend profile into the workspace and writes the project
+// marker so eforge resolves the profile via step 1 of its 5-step precedence
+// chain, insulating eval runs from the developer's user-scope eforge settings
+// (~/.config/eforge/.active-backend, ~/.config/eforge/config.yaml's
+// `backend:` field, or ~/.config/eforge/backends/).
+//
+// Precedence (highest to lowest):
+//   1. eforge/.active-backend (project marker)        ← we write this
+//   2. eforge/config.yaml `backend:` field
+//   3. ~/.config/eforge/.active-backend (user marker)
+//   4. ~/.config/eforge/config.yaml `backend:` field
+//   5. none
+function pinBackendProfile(workspace: string, backendName: string): void {
+  const sourceProfile = join(BACKENDS_DIR, `${backendName}.yaml`);
+  if (!existsSync(sourceProfile)) {
+    throw new Error(`Backend profile not found: ${sourceProfile}`);
+  }
   const eforgeDir = join(workspace, 'eforge');
-  mkdirSync(eforgeDir, { recursive: true });
-  const cfgPath = join(eforgeDir, 'config.yaml');
-  const base = existsSync(cfgPath) ? (parseYaml(readFileSync(cfgPath, 'utf8') || '{}') as Record<string, unknown>) : {};
-  writeFileSync(cfgPath, stringifyYaml({ ...base, ...overlay }));
+  const workspaceBackendsDir = join(eforgeDir, 'backends');
+  mkdirSync(workspaceBackendsDir, { recursive: true });
+  cpSync(sourceProfile, join(workspaceBackendsDir, `${backendName}.yaml`));
+  writeFileSync(join(eforgeDir, '.active-backend'), `${backendName}\n`);
+}
+
+/** Read a backend profile file as a plain object, for result.json recording. */
+function readBackendProfile(backendName: string): Record<string, unknown> {
+  const path = join(BACKENDS_DIR, `${backendName}.yaml`);
+  const raw = readFileSync(path, 'utf8');
+  const parsed = parseYaml(raw);
+  return (parsed && typeof parsed === 'object') ? (parsed as Record<string, unknown>) : {};
 }
 
 // --- Validation runner ---
@@ -410,6 +437,7 @@ interface ScenarioRunOpts {
   eforgeBin: string;
   eforgeVersion: string;
   eforgeCommit: string;
+  eforgeDirty: boolean;
   monitorDbPath: string;
   dryRun: boolean;
   globalEnvVars: Record<string, string>;
@@ -425,9 +453,9 @@ interface ScenarioRunResult {
 }
 
 async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
-  const { expanded, scenarioDir, eforgeBin, eforgeVersion, eforgeCommit, monitorDbPath, dryRun, globalEnvVars, parallel } = opts;
-  const { scenario, variant } = expanded;
-  const label = variant.name;
+  const { expanded, scenarioDir, eforgeBin, eforgeVersion, eforgeCommit, eforgeDirty, monitorDbPath, dryRun, globalEnvVars, parallel } = opts;
+  const { scenario, backend } = expanded;
+  const label = backend.name;
   const prefix = parallel ? `${DIM}[${label}]${RESET} ` : '';
   const log = (msg: string) => console.log(`${prefix}${msg}`);
 
@@ -437,7 +465,7 @@ async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
   const fixtureDir = join(FIXTURES_DIR, scenario.fixture);
   if (!existsSync(fixtureDir)) {
     log(`  ${RED}ERROR${RESET}: Fixture not found: ${fixtureDir}`);
-    writeErrorResult(scenarioDir, expanded.id, eforgeVersion, eforgeCommit, startTime, `Fixture directory not found: ${scenario.fixture}`);
+    writeErrorResult(scenarioDir, expanded.id, eforgeVersion, eforgeCommit, eforgeDirty, startTime, `Fixture directory not found: ${scenario.fixture}`);
     return { scenario: expanded.id, passed: false };
   }
 
@@ -449,11 +477,11 @@ async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
   cpSync(fixtureDir, workspace, { recursive: true });
   writeFileSync(join(scenarioDir, 'workspace-path.txt'), workspace);
 
-  // Step 2b: Apply variant config overlay
-  if (variant.configOverlay && Object.keys(variant.configOverlay).length > 0) {
-    log(`  Applying variant '${variant.name}' config overlay...`);
-    applyConfigOverlay(workspace, variant.configOverlay);
-  }
+  // Step 2b: Pin the active backend profile into the workspace so the eval
+  // run is not polluted by any user-scope eforge config on the developer's
+  // machine. See pinBackendProfile() for the precedence rationale.
+  log(`  Pinning backend profile '${backend.name}'...`);
+  pinBackendProfile(workspace, backend.name);
 
   // Step 2c: Init git
   log('  Initializing git repo...');
@@ -468,16 +496,16 @@ async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
   envOverrides['EFORGE_MONITOR_DB'] = monitorDbPath;
   envOverrides['EFORGE_TRACE_TAGS'] = `eval,${expanded.id}`;
 
-  // Source variant env file
-  if (variant.envFile) {
-    const envFilePath = join(SCRIPT_DIR, variant.envFile);
+  // Source backend env file
+  if (backend.envFile) {
+    const envFilePath = join(SCRIPT_DIR, backend.envFile);
     if (!existsSync(envFilePath)) {
-      log(`  ${RED}ERROR${RESET}: Variant env file not found: ${variant.envFile}`);
-      writeErrorResult(scenarioDir, expanded.id, eforgeVersion, eforgeCommit, startTime, `Variant env file not found: ${variant.envFile}`);
+      log(`  ${RED}ERROR${RESET}: Backend env file not found: ${backend.envFile}`);
+      writeErrorResult(scenarioDir, expanded.id, eforgeVersion, eforgeCommit, eforgeDirty, startTime, `Backend env file not found: ${backend.envFile}`);
       cleanupWorkspace(workspace);
       return { scenario: expanded.id, passed: false };
     }
-    log(`  Sourcing env file: ${variant.envFile}`);
+    log(`  Sourcing env file: ${backend.envFile}`);
     Object.assign(envOverrides, loadEnvFile(envFilePath));
   }
 
@@ -511,21 +539,22 @@ async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
   const endTime = Date.now();
   const duration = Math.round((endTime - startTime) / 1000);
 
-  // Step 6: Build result.json (includes variant config)
+  // Step 6: Build result.json (records the backend profile)
   const result = buildResult({
     outputFile: join(scenarioDir, 'result.json'),
     scenario: expanded.id,
     eforgeVersion,
     eforgeCommit,
+    eforgeDirty,
     exitCode: eforgeExit,
     duration,
     validation,
     monitorDbPath,
     workspace,
-    variant: {
-      name: variant.name,
-      configOverlay: variant.configOverlay as Record<string, unknown>,
-      envFile: variant.envFile,
+    backend: {
+      name: backend.name,
+      profile: readBackendProfile(backend.name),
+      envFile: backend.envFile,
     },
   });
 
@@ -567,7 +596,7 @@ async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
   return { scenario: expanded.id, passed: isScenarioPassed(finalResult), result: finalResult };
 }
 
-function writeErrorResult(scenarioDir: string, id: string, eforgeVersion: string, eforgeCommit: string, startTime: number, error: string): void {
+function writeErrorResult(scenarioDir: string, id: string, eforgeVersion: string, eforgeCommit: string, eforgeDirty: boolean, startTime: number, error: string): void {
   const duration = Math.round((Date.now() - startTime) / 1000);
   writeFileSync(
     join(scenarioDir, 'result.json'),
@@ -577,6 +606,7 @@ function writeErrorResult(scenarioDir: string, id: string, eforgeVersion: string
         timestamp: new Date().toISOString(),
         eforgeVersion,
         eforgeCommit,
+        ...(eforgeDirty && { eforgeDirty: true }),
         eforgeExitCode: 1,
         validation: {},
         durationSeconds: duration,
@@ -605,7 +635,7 @@ async function runScenarioWithRepeats(
     return runScenario(opts);
   }
 
-  const { expanded, scenarioDir, eforgeBin, eforgeVersion, eforgeCommit, monitorDbPath, dryRun, globalEnvVars, parallel } = opts;
+  const { expanded, scenarioDir, eforgeBin, eforgeVersion, eforgeCommit, eforgeDirty, monitorDbPath, dryRun, globalEnvVars, parallel } = opts;
   let runPassed = 0;
 
   for (let i = 1; i <= repeatCount; i++) {
@@ -655,6 +685,7 @@ async function runScenarioWithRepeats(
     timestamp: new Date().toISOString(),
     eforgeVersion,
     eforgeCommit,
+    ...(eforgeDirty && { eforgeDirty: true }),
     eforgeExitCode: runs.every((r) => r.passed) ? 0 : 1,
     validation: {},
     durationSeconds: totalDuration,
@@ -948,27 +979,27 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Load scenarios and variants
+  // Load scenarios and backends
   const allScenarios = loadScenarios(SCENARIOS_FILE);
-  const allVariants = loadVariants(VARIANTS_FILE);
+  const allBackends = loadBackends(BACKENDS_DIR, BACKEND_ENVS_FILE);
 
-  // Require --variant
-  if (args.variantNames.length === 0) {
-    console.error('Error: --variant is required. Specify one or more variant names.');
-    console.error(`Available variants: ${allVariants.map((v) => v.name).join(', ')}`);
+  // Require --backend
+  if (args.backendNames.length === 0) {
+    console.error('Error: --backend is required. Specify one or more backend profile names.');
+    console.error(`Available backends: ${allBackends.map((b) => b.name).join(', ')}`);
     process.exit(1);
   }
 
-  // Validate --variant names
-  const invalidVariants = args.variantNames.filter((n) => !allVariants.some((v) => v.name === n));
-  if (invalidVariants.length > 0) {
-    console.error(`Error: Unknown variant(s): ${invalidVariants.join(', ')}`);
-    console.error(`Available variants: ${allVariants.map((v) => v.name).join(', ')}`);
+  // Validate --backend names
+  const invalidBackends = args.backendNames.filter((n) => !allBackends.some((b) => b.name === n));
+  if (invalidBackends.length > 0) {
+    console.error(`Error: Unknown backend(s): ${invalidBackends.join(', ')}`);
+    console.error(`Available backends: ${allBackends.map((b) => b.name).join(', ')}`);
     process.exit(1);
   }
 
-  // Filter variants to requested names
-  const selectedVariants = allVariants.filter((v) => args.variantNames.includes(v.name));
+  // Filter backends to requested names
+  const selectedBackends = allBackends.filter((b) => args.backendNames.includes(b.name));
 
   // Validate --compare
   if (args.compareTimestamp) {
@@ -1008,7 +1039,7 @@ async function main(): Promise<void> {
   pruneOldRuns();
 
   // Get eforge version and commit
-  const { version: eforgeVersion, commit: eforgeCommit } = parseEforgeVersion(eforgeBin);
+  const { version: eforgeVersion, commit: eforgeCommit, dirty: eforgeDirty } = parseEforgeVersion(eforgeBin);
 
   // Shared monitor DB
   const monitorDbPath = join(RESULTS_DIR, 'monitor.db');
@@ -1022,15 +1053,15 @@ async function main(): Promise<void> {
 
   console.log('Eforge Eval Run');
   console.log(`  Version: ${eforgeVersion}`);
-  console.log(`  Variants: ${selectedVariants.map((v) => v.name).join(', ')}`);
+  console.log(`  Backends: ${selectedBackends.map((b) => b.name).join(', ')}`);
   console.log(`  Results: ${runDir}`);
   if (monitorUrl) {
     console.log(`  Monitor: ${monitorUrl}`);
   }
   console.log('');
 
-  // Cross-product scenarios with variants and filter
-  const allExpanded = expandScenarioVariants(allScenarios, selectedVariants);
+  // Cross-product scenarios with backends and filter
+  const allExpanded = expandScenarioBackends(allScenarios, selectedBackends);
   const expanded = filterExpandedScenarios(allExpanded, args.filters, args.all);
 
   if (expanded.length === 0) {
@@ -1052,7 +1083,7 @@ async function main(): Promise<void> {
     const isParallel = group.scenarios.length > 1;
 
     if (isParallel) {
-      console.log(`${BOLD}━━━ Group: ${group.groupId} (${group.scenarios.length} variants, parallel) ━━━${RESET}`);
+      console.log(`${BOLD}━━━ Group: ${group.groupId} (${group.scenarios.length} backends, parallel) ━━━${RESET}`);
     }
 
     // Print scenario headers
@@ -1062,7 +1093,7 @@ async function main(): Promise<void> {
         console.log(`  ${e.scenario.description ?? ''}`);
         console.log(`  Fixture: ${e.scenario.fixture}`);
         console.log(`  PRD: ${e.scenario.prd}`);
-        console.log(`  Variant: ${e.variant.name}`);
+        console.log(`  Backend: ${e.backend.name}`);
         if (args.repeatCount > 1) console.log(`  Repeats: ${args.repeatCount}`);
         console.log('');
       }
@@ -1070,12 +1101,12 @@ async function main(): Promise<void> {
 
     if (isParallel) {
       for (const e of group.scenarios) {
-        console.log(`  ${DIM}[${e.variant.name}]${RESET} ${e.scenario.description ?? ''} (${e.scenario.fixture} / ${e.scenario.prd})`);
+        console.log(`  ${DIM}[${e.backend.name}]${RESET} ${e.scenario.description ?? ''} (${e.scenario.fixture} / ${e.scenario.prd})`);
       }
       console.log('');
     }
 
-    // Run variants in parallel (or single if only one)
+    // Run backends in parallel (or single if only one)
     const promises = group.scenarios.map((e) => {
       total++;
       const scenarioDir = join(runDir, e.id);
@@ -1088,6 +1119,7 @@ async function main(): Promise<void> {
           eforgeBin,
           eforgeVersion,
           eforgeCommit,
+          eforgeDirty,
           monitorDbPath,
           dryRun: args.dryRun,
           globalEnvVars,
@@ -1124,9 +1156,9 @@ async function main(): Promise<void> {
     console.log('  Analysis skipped (no data or error)');
   }
 
-  // Run variant comparison
+  // Run backend comparison
   console.log('');
-  console.log('Running variant comparison...');
+  console.log('Running backend comparison...');
   try {
     execSync(`npx tsx "${join(SCRIPT_DIR, 'lib', 'compare.ts')}" "${runDir}"`, {
       cwd: SCRIPT_DIR,

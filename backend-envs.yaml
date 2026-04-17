@@ -1,0 +1,16 @@
+# Env-file mappings for backend profiles defined in eforge/backends/.
+# Backend profiles themselves are plain eforge profile files; this file only
+# associates extra env files (API keys, etc.) with specific backends.
+# Backends without an entry here run without a custom env file.
+
+backends:
+  pi-nemotron:
+    envFile: env/pi.env
+  pi-glm:
+    envFile: env/pi.env
+  pi-free:
+    envFile: env/pi.env
+  anthropic-api:
+    envFile: env/anthropic.env
+  anthropic-api-4-6:
+    envFile: env/anthropic.env

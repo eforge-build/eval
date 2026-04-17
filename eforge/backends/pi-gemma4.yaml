@@ -1,0 +1,6 @@
+backend: pi
+agents:
+  models:
+    max:
+      provider: llama-cpp
+      id: gemma-4
