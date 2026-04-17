@@ -1,5 +1,3 @@
-backend: claude-sdk
-
 build:
   postMergeCommands:
     - pnpm install
