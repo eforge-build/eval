@@ -1,17 +1,19 @@
 # Claude Agent SDK vs. Pi Backend — Multi-Scale Comparison (2026-04-18)
 
-Two backend profiles — `claude-sdk` and `pi` (Anthropic direct) — compared on two scenarios with matched model tiers within each comparison. The errand scenario was run at **both** Opus 4.6 and Opus 4.7 to separate backend behavior from model tier. The excursion scenario was run only at Opus 4.7. Within every comparison, both backends use the same `max` and `balanced` models, so between-backend differences isolate backend behavior (pipeline-composer routing, SDK-internal delegation) rather than model capability.
+Two backend profiles — `claude-sdk` and `pi` (Anthropic direct) — compared on two scenarios with matched model tiers **and matched effort** within each comparison. The errand scenario was run at **both** Opus 4.6 and Opus 4.7 to separate backend behavior from model tier. The excursion scenario was run only at Opus 4.7. Within every comparison, both backends use the same `max` and `balanced` models and `effort=high`, so between-backend differences are not attributable to the configured model or effort setting.
 
-Follows on from [2026-04-14 harness-backends](../2026-04-14-harness-backends/) and [2026-04-16 opus-4-7 first look](../2026-04-16-opus-4-7-first-look/), which established the SDK-over-Pi cost premium and the SDK-composer-over-scopes-via-haiku pattern on separate scenarios.
+Follows on from [2026-04-14 harness-backends](../2026-04-14-harness-backends/) and [2026-04-16 opus-4-7 first look](../2026-04-16-opus-4-7-first-look/), which established the SDK-over-Pi cost premium and the SDK-composer-over-scopes-via-haiku pattern on separate scenarios. Those prior evals ran each backend at its default effort (`claude-sdk` defaults to `xhigh`, `pi` defaults to `medium`), so their cost-premium finding was confounded with effort. This eval controls for that by fixing `effort=high` on both sides.
 
 ## Variants
 
-| Variant | Backend | `max` model | `balanced` model | Scales run |
-|---|---|---|---|---|
-| `claude-sdk-4-6` | Claude Agent SDK | `claude-opus-4-6` | `claude-sonnet-4-6` | errand |
-| `pi-anthropic-4-6` | pi (Anthropic direct) | `claude-opus-4-6` | `claude-sonnet-4-6` | errand |
-| `claude-sdk-4-7` | Claude Agent SDK | `claude-opus-4-7` | `claude-sonnet-4-6` | errand, excursion |
-| `pi-anthropic-4-7` | pi (Anthropic direct) | `claude-opus-4-7` | `claude-sonnet-4-6` | errand, excursion |
+| Variant | Backend | Effort | `max` model | `balanced` model | Scales run |
+|---|---|---|---|---|---|
+| `claude-sdk-4-6` | Claude Agent SDK | `high` | `claude-opus-4-6` | `claude-sonnet-4-6` | errand |
+| `pi-anthropic-4-6` | pi (Anthropic direct) | `high` | `claude-opus-4-6` | `claude-sonnet-4-6` | errand |
+| `claude-sdk-4-7` | Claude Agent SDK | `high` | `claude-opus-4-7` | `claude-sonnet-4-6` | errand, excursion |
+| `pi-anthropic-4-7` | pi (Anthropic direct) | `high` | `claude-opus-4-7` | `claude-sonnet-4-6` | errand, excursion |
+
+**Effort is fixed at `high` for every variant.** This is a deliberate deviation from the backend defaults (`claude-sdk` → `xhigh`; `pi` → `medium`) used in [2026-04-14 harness-backends](../2026-04-14-harness-backends/) and [2026-04-16 opus-4-7 first look](../2026-04-16-opus-4-7-first-look/). Prior SDK-over-pi cost findings were confounded by that default asymmetry; this eval controls for it.
 
 `balanced` is invoked only by `prd-validator`. The `claude-sdk` backend additionally routes `pipeline-composer` to `claude-haiku-4-5` — this is an SDK-internal delegation not configured in eforge, and matches the routing observed in prior evals. `pi` routes pipeline-composer to the configured `max` model.
 
@@ -81,7 +83,7 @@ Aggregate per backend:
 
 **Mode expectation:** both backends pass 2/2 (all 4 runs picked `excursion`).
 
-**Behavioral differentiator:** `claude-sdk-4-7` run-1 shipped with 3 missed PRD requirements (404 existence checks on thread/reply routes); the `gap-closer` stage rescued the run to 100% PRD pass. The other 3 runs hit 100% directly.
+**Behavioral note:** `claude-sdk-4-7` run-1 shipped with 3 missed PRD requirements (404 existence checks on thread/reply routes); the `gap-closer` stage rescued the run to 100% PRD pass. The other 3 runs (sdk-run-2, pi-run-1, pi-run-2) hit 100% directly. This is a single per-run observation; see [`excursion-workspace-engagement.md`](./excursion-workspace-engagement.md#gap-closer-sdk-run-1-only) for detail.
 
 ### SDK-over-Pi cost ratio across the set
 
@@ -95,45 +97,35 @@ The ratio narrows both as model moves 4-6 → 4-7 (within errand) and as scale m
 
 ## What replicated
 
-**1. `pi` costs less than `claude-sdk` in every comparison.** Three separate matched-model comparisons, same direction every time: 2.75× at errand-4-6, 1.86× at errand-4-7, 1.47× at excursion-4-7. Also consistent with [2026-04-14 harness-backends](../2026-04-14-harness-backends/) and [2026-04-16 opus-4-7 first look](../2026-04-16-opus-4-7-first-look/). Cache hit rates are within ~5 points across backends in every row, so the gap isn't attributable to caching.
+**1. `pi` costs less than `claude-sdk` in every comparison — and now at matched effort.** Three separate matched-model, matched-effort (`high`) comparisons, same direction every time: 2.75× at errand-4-6, 1.86× at errand-4-7, 1.47× at excursion-4-7. The SDK-over-pi cost gap direction is consistent with [2026-04-14](../2026-04-14-harness-backends/) and [2026-04-16](../2026-04-16-opus-4-7-first-look/), which ran at default effort (`xhigh` for SDK, `medium` for pi). That earlier finding could not separate backend from effort; this eval can, and the gap persists. Cache hit rates are within ~5 points across backends in every row, so the gap isn't attributable to caching either.
 
-**2. `pi-anthropic` makes better scope decisions at errand scale, at both model tiers.**
-- Errand-4-7: pi gets `errand` scope 3/3; sdk gets it 0/3 (all `excursion`). See [`errand-health-check-4-7.md`](./errand-health-check-4-7.md#pipeline-composer).
-- Errand-4-6: pi gets `errand` scope 3/3; sdk gets it 1/3. See [`errand-health-check-4-6.md`](./errand-health-check-4-6.md#pipeline-composer).
+**2. `pi-anthropic` makes better scope decisions at errand scale.** Across 6 errand runs (n=3 per backend × two model tiers), pi's composer picked `errand` **6/6** times; sdk's composer picked `errand` **1/6** times. Pi-4-6 3/3, pi-4-7 3/3; sdk-4-6 1/3, sdk-4-7 0/3. See [`errand-health-check-4-6.md`](./errand-health-check-4-6.md#pipeline-composer) and [`errand-health-check-4-7.md`](./errand-health-check-4-7.md#pipeline-composer). The 6 SDK runs are best treated as a single population rather than two tiers to compare — `pipeline-composer` runs on `claude-haiku-4-5` in both SDK variants (observed in per-run logs), so the `max` model change from 4-6 to 4-7 does not reach the composer agent.
 
-That's 6/6 correct scope calls for pi at errand vs. 1/6 for sdk, across two model tiers. The pattern holds regardless of model.
+**3. SDK pipeline-composer instability via haiku delegation — third eval in a row.** The `claude-sdk` backend routes `pipeline-composer` to `claude-haiku-4-5` on both scales. Same PRD, same composer model, inconsistent output across runs: errand-4-6 split 1 errand / 2 excursion, errand-4-7 all 3 excursion, excursion-4-7 stage-list varied (doc-update included on run-1, dropped on run-2). Replicates the pattern documented in 2026-04-14 and 2026-04-16.
 
-**3. SDK pipeline-composer instability via haiku delegation — third eval in a row.** The `claude-sdk` backend routes `pipeline-composer` to `claude-haiku-4-5` on both scales. At errand: same PRD, same model, inconsistent output across runs (errand-4-6 split 1/3 errand, 2/3 excursion; errand-4-7 all 3 excursion). At excursion: mode was stable but stage-list varied (doc-update included on run-1, dropped on run-2). Replicates the pattern documented in 2026-04-14 and 2026-04-16.
-
-**4. `pi` wins on decision quality at excursion scale too.** At matched model (4-7): pi hit PRD 100% directly on both runs; sdk-run-1 missed 3 required 404 checks despite a deeper review pipeline (16 reviewer issues raised, plan-evaluator ran) and needed `gap-closer` to rescue. See [`excursion-workspace-engagement.md`](./excursion-workspace-engagement.md#builder). n=2 per side, so this is a single incident, not a rate.
-
-**5. Doc-updater on doc-less fixtures remains wasted compute.** Both fixtures (`todo-api`, `workspace-api`) contain only PRD sources under `docs/`. Every doc-updater invocation across both scenarios produced `count=0`. Same fixture-level gap flagged in the 2026-04-16 set.
+**4. Doc-updater on doc-less fixtures remains wasted compute.** Both fixtures (`todo-api`, `workspace-api`) contain only PRD sources under `docs/`. Every doc-updater invocation across both scenarios produced `count=0`. Same fixture-level gap flagged in the 2026-04-16 set.
 
 ## What did not replicate
 
-**`pi`'s `buildStagesExclude` failure at errand scale is specific to the 4-6 tier.** At errand-4-6, `pi-anthropic-4-6` picked `test-cycle` instead of `test-write` on all 3 runs, violating `expect.buildStagesExclude: [test-cycle]` and producing a 0/3 expectations pass rate despite getting mode right. At errand-4-7, `pi-anthropic-4-7`'s composer used `test-write` and passed expectations 3/3. Same backend, same PRD, same scenario — the stage choice changed with the model tier.
+**`pi`'s `buildStagesExclude` failure at errand scale is specific to the 4-6 tier.** At errand-4-6, `pi-anthropic-4-6` picked `test-cycle` instead of `test-write` on all 3 runs, violating `expect.buildStagesExclude: [test-cycle]` and producing a 0/3 expectations pass rate despite getting mode right. At errand-4-7, `pi-anthropic-4-7`'s composer used `test-write` and passed expectations 3/3. Same backend, same PRD, same scenario — the stage choice changed with the model tier. At 4-7, `pi-anthropic` passes all errand expectations; the 4-6 failure is a single-tier observation, not a general backend property.
 
-This means the earlier "neither backend passes errand expectations consistently" conclusion is tier-specific: at Opus 4.7, `pi-anthropic-4-7` passes 3/3. The 4-6 run is the outlier on that dimension.
-
-**SDK composer consistency did not improve with the stronger model.** Going from 4-6 → 4-7 at errand scale, the SDK composer went from 1/3 to 0/3 correct scope calls. Because the SDK routes the composer to haiku regardless of the configured `max` model, the `max` upgrade does not reach the composer — and on these runs, the haiku composer got directionally worse. n=3 per tier, so this is directional, not a confident rate difference.
+**SDK excursion miss did not recur.** `claude-sdk-4-7` run-1 shipped with 3 missed PRD requirements (rescued by `gap-closer`). `claude-sdk-4-7` run-2 hit PRD 100% directly. With n=2 per backend at excursion scale, this is a single per-run observation and cannot be stated as a rate. See [`excursion-workspace-engagement.md`](./excursion-workspace-engagement.md#builder).
 
 ## Confounds
 
-**Excursion scale is 4-7 only.** The excursion comparison is single-tier, so the SDK-over-pi excursion ratio (1.47×) is confounded with model — we cannot tell whether the narrower cross-scale ratio reflects scale, model, or both. The errand rows support a clean within-scale model-tier comparison; the excursion row does not. A clean test would re-run excursion at 4-6.
+**Excursion scale is 4-7 only.** The excursion row itself is a clean within-row matched-model comparison (both backends on Opus 4.7). What is confounded is the *cross-scale narrowing* of the SDK-over-pi cost ratio (2.75× at errand-4-6 → 1.86× at errand-4-7 → 1.47× at excursion-4-7) — with no excursion-4-6 row, scale effects cannot be separated from model effects across rows. A clean test would re-run excursion at 4-6.
 
-**Aggregator bug in `comparison.json`.** All three runs' `comparison.json` files report `expectationsPassed: true` for every backend, but per-run `result.json` files show failures on 5/6 errand-4-6 runs and 3/3 errand-4-7 SDK runs. Automated pass/fail monitoring on `comparison.json` under-reports failures at the errand scale. The per-run `result.json.expectations` field is the source of truth. The excursion-scale rollup happens to be correct because all 4 excursion runs pass mode — it is not correct by design, only by coincidence.
+**Aggregator bug in `comparison.json`.** All three result sets ran on eforge `0.5.8-dirty (f5f870a)`. All three `comparison.json` files report `expectationsPassed: true` for every backend, but per-run `result.json` files show failures on 5/6 errand-4-6 runs and 3/3 errand-4-7 SDK runs. Automated pass/fail monitoring on `comparison.json` under-reports failures at the errand scale. The per-run `result.json.expectations` field is the source of truth. The excursion-scale rollup happens to match reality because all 4 excursion runs pass mode — it is correct by coincidence, not by design. Confirm the fix is present before relying on `comparison.json` in future runs.
 
 **Sample sizes.** n=3 at each errand comparison, n=2 at the excursion comparison. Intra-backend run-to-run variance on cost at excursion scale is 1.7–1.8× (larger than the 1.47× between-backend mean), so the excursion ratio is directional. The n=3 errand rows are more stable: within-backend per-run cost variance is smaller than the between-backend gap.
 
 **Fixture doc gap.** Neither `fixtures/todo-api/docs/` nor `fixtures/workspace-api/docs/` contains project documentation. Every `doc-updater` invocation is forced to decline. Affects every eval against these fixtures equally; does not bias the backend comparison, but makes `doc-update` non-discriminating.
 
-**Aggregator bug rerun window.** The fix landed after these runs started — confirm the fix is applied before drawing pass/fail conclusions from future `comparison.json` rollups.
-
 ## Methodological note
 
-The errand comparison is relatively well-replicated: three runs per backend per model tier, two model tiers, same scenario, same fixture, same validation. The six-comparison scope call (6/6 pi correct, 1/6 sdk correct) is the strongest single claim in this eval. Cost ratios replicate in direction at every granularity (three comparisons, three same-direction results). 
+The errand comparison is well-replicated: three runs per backend per model tier, two model tiers, same scenario, same fixture, same validation. The scope-call finding — pi 6/6, sdk 1/6 correct, each over 6 runs — is supported by the largest sample in this set. Cost ratios are in the same direction across all three comparisons (3/3), though the magnitudes differ meaningfully (2.75×, 1.86×, 1.47×).
 
-The excursion comparison remains n=2. The sdk-run-1 gap-closer rescue is a single observation — the statement "the SDK review pipeline failed to catch three 404-requirement gaps on this run" is a per-run fact. The broader claim "sdk reviewer misses behavioral specs more often than pi's" would require n ≥ 3 per backend at excursion scale before it belongs in a replicated-finding list.
+The excursion comparison remains n=2. The sdk-run-1 gap-closer rescue is a single observation — "the SDK review pipeline failed to catch three 404-requirement gaps on this run" is a per-run fact, not a rate. The broader claim "sdk reviewer misses behavioral specs more often than pi's" would require n ≥ 3 per backend at excursion scale before it belongs in a replicated-finding list.
 
 No cross-scale quality claim is published here. The per-scenario analyses are the primary artifact.
 
