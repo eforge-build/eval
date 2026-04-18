@@ -83,7 +83,9 @@ export interface ScenarioResult {
   metrics?: ScenarioMetrics;
   expectations?: {
     passed: boolean;
-    checks: ExpectationCheck[];
+    checks?: ExpectationCheck[];
+    passRate?: number;
+    perRun?: Array<{ run: number; passed: boolean; checks: ExpectationCheck[] }>;
   };
 }
 

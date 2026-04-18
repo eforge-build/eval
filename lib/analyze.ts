@@ -164,7 +164,7 @@ function detectProfileSelection(results: ScenarioResult[]): Observation[] {
   const observations: Observation[] = [];
 
   for (const r of results) {
-    if (!r.expectations) continue;
+    if (!r.expectations?.checks) continue;
     for (const check of r.expectations.checks) {
       if (!check.passed) {
         let message: string;

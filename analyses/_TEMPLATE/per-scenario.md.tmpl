@@ -1,0 +1,153 @@
+<!--
+Per-scenario analysis template. One file per scenario (or one per cross-run comparison).
+Fill placeholders in <angle-brackets>. Delete sections that do not apply and say why
+(e.g., "Reviewer — n/a, single-variant stage"). Keep the voice factual: cite logs by
+line number, mark ties as ties, do not invent winners.
+
+Filename convention: <scale>-<short-scenario-slug>.md (e.g., errand-health-check.md,
+excursion-jwt-auth.md, excursion-workspace-engagement.md). Cross-run comparisons append
+"(cross-run)" in the H1 and explain the confound up front.
+-->
+
+# Variant Analysis — <run-timestamp-or-cross-run-label>
+
+Generated: <ISO-8601 timestamp>
+Scenarios analyzed: <count>
+
+<!-- Optional: if this is a cross-run comparison, explain why BEFORE the scorecard.
+Name the source run for each variant and any confound (version delta, config change).
+Example:
+> The `anthropic-api` variant previously failed in run X. A fix landed before the rerun
+> on eforge 0.5.5, so differences reflect both a model choice AND a version delta.
+-->
+
+## <scenario-id>
+
+**Variants:** <comma-separated list>
+**Ranking:** 1. <best>, 2. <next>, 3. <worst>   <!-- or "tie" — say so explicitly -->
+
+**Expected behavior:** <mode + buildStagesContain/Exclude + skip, from scenarios.yaml>
+
+**Configs under test:**
+- `<variant-a>` — backend <name>; <model-routing summary>. <cost> / <duration>.
+- `<variant-b>` — …
+- `<variant-c>` — …
+
+<!-- One sentence on whether all variants passed validation; differentiation is typically
+decision quality, not pass/fail. State that explicitly. -->
+
+### Scorecard
+
+<!--
+Use ✓ / ~ / ✗ for pass/partial/fail when the dimension is categorical.
+Use numeric rank (1/2/3) when all variants produced valid output and you're ordering them.
+Bold the best cell in the Cost and Duration rows.
+Omit rows that don't apply (e.g., Reviewer if no variant ran one).
+-->
+
+| Dimension | <variant-a> | <variant-b> | <variant-c> |
+|---|---|---|---|
+| Pipeline composer scope | | | |
+| Pipeline composer stages | | | |
+| Planner | | | |
+| Plan-reviewer | | | |
+| Builder | | | |
+| Test stage | | | |
+| Reviewer | | | |
+| Review-fixer | | | |
+| Evaluator | | | |
+| Doc discipline | | | |
+| Scope discipline | | | |
+| Mode expectation | | | |
+| Stage-exclude expectation | | | |
+| Validation | | | |
+| Cost | | | |
+| Duration | | | |
+
+### Stage-by-stage
+
+<!-- For each stage, cite log line numbers or result.json paths. Pick one winner or call
+a tie. Keep claims proportional to evidence: single-run observations are single-run. -->
+
+#### Pipeline composer
+- `<variant-a>` (`eforge.log:<lines>`): <scope>, <stages>. Rationale: <quoted or paraphrased>.
+- `<variant-b>` (`eforge.log:<lines>`): …
+- `<variant-c>` (`eforge.log:<lines>`): …
+
+**Winner:** <variant or tie>. <one-line reason>.
+
+#### Planner
+- <variant-a>: …
+- <variant-b>: …
+- <variant-c>: …
+
+**Winner:** <variant or tie>.
+
+#### Plan-reviewer
+<!-- Only if a plan-review-cycle ran. Note real catches vs. boilerplate. -->
+
+#### Builder
+<!-- Turn counts, token totals (from result.json metrics.agents.builder), notable
+dependency installs or scope decisions, any pragmatic workarounds. -->
+
+#### Test stage
+<!-- test-writer vs. test-cycle vs. inline-from-builder. Declining to add tests when
+criteria are met is a positive outcome — flag it. -->
+
+#### Reviewer
+<!-- Real-bug-to-speculation ratio. Severity calibration across variants. Loops
+(same rejected issue re-raised) count against the reviewer. -->
+
+#### Review-fixer
+<!-- Discriminate between "applied fixes" and "yes-manned the reviewer". If the stage
+was a no-op because the reviewer self-applied, that's a pipeline artifact, not a
+variant difference — say so. -->
+
+#### Evaluator
+<!-- Did it catch bad fixes? Accept real ones? If policy outcomes block real bugs
+from landing in the artifact, note it — but separate "variant quality" from
+"pipeline-design consequence". -->
+
+#### Doc discipline
+<!-- Enumerate every Write/Edit to docs/, README*, CHANGELOG*, or other doc paths
+(query the monitor DB across ALL agents, not just doc-updater).
+Classify each touched path as: PRD source (red), project doc (judge per-file),
+or missed update. Apply to every variant, including ones that never ran doc-updater.
+
+Include a "Fixture observation" subsection if the fixture's doc structure makes
+this stage intrinsically wasted (e.g., no README/api-reference exists). -->
+
+#### Scope discipline
+<!-- Non-doc files touched vs. files the PRD asked for. Run git log --stat in the
+workspace if unsure. -->
+
+#### Final artifact
+<!-- Did validation pass for each variant? Are artifacts functionally equivalent,
+or is one genuinely better? Call out unaddressed reviewer findings that remain in
+the shipped code. -->
+
+### Verdict
+
+<!-- 2–4 sentences per variant, in ranking order. Name the decisive dimensions.
+Avoid superlatives that aren't grounded in the scorecard. No "amazing", "remarkable",
+"impressive". State what happened and what it implies. -->
+
+**<winner>** — <decisive dimensions, cited>.
+
+**<second>** — <what it won on, what it lost>.
+
+**<third>** — <what went wrong, proportional to evidence>.
+
+### Notes
+
+<!-- Things that don't fit the scorecard but a future reader needs to know:
+- Metrics aggregator sanity-check (is result.json trustworthy, or formatter-only?)
+- Model routing details that diverge across variants
+- Langfuse on/off
+- Cross-run config drift (e.g., balanced model changed between runs)
+- Pipeline-design observations that apply regardless of variant
+- Fixture limitations that affect interpretation
+-->
+
+- **Metrics aggregator:** <healthy / contaminated — with true numbers if contaminated>.
+- <other notes>

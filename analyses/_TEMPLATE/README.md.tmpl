@@ -1,0 +1,143 @@
+<!--
+Top-level README for an eval analysis set. Compiles per-scenario files in the same
+directory into a single factual summary.
+
+Voice rules (enforced):
+- No sensationalism. No "proves", "dramatic", "remarkable", "clear winner" unless the
+  data unambiguously supports it across replications.
+- Every cross-variant claim cites a table row or a per-scenario file.
+- Single-run claims are labeled single-run. n=1 findings go under "What did not
+  replicate" or "Confounds", not "What replicated", unless a prior eval replicated them.
+- Confounds section is required when any variant ran on a different version, config,
+  or fixture state than its peers.
+- "What did not replicate" section is required when behavioral-quality claims disagree
+  between runs or scales.
+- Methodological note is required whenever sample sizes differ across metric types
+  (e.g., n=7 for cost, n=1 for decision quality).
+
+Delete sections that genuinely do not apply — but state why above the deletion.
+-->
+
+# <Eval Title> (<YYYY-MM-DD>)
+
+<!-- One paragraph: what this eval is, when it ran, what changed since the last eval.
+Link to eforge and to any prior related eval. Keep it descriptive, not promotional. -->
+
+<opening paragraph>
+
+<!-- Optional second paragraph: what eforge is / what the backends are, for a reader
+who lands here cold. Only if the eval introduces a new backend or a new scale. -->
+
+## Variants
+
+| Variant | Backend | `max` model | `balanced` model |
+|---|---|---|---|
+| `<name>` | <backend> | `<model-id>` | `<model-id>` |
+| …       |           |               |                  |
+
+<!-- Notes under the variants table: which agent uses `balanced`; any SDK-internal
+model routing the eforge config cannot see (e.g., SDK routes pipeline-composer to
+haiku). Flag these explicitly — they are decision-quality-relevant, not footnotes. -->
+
+## Scales and scenarios
+
+| Scale | Scenario | Runs today | Analysis file |
+|---|---|---|---|
+| <scale> | `<scenario-id>` — <one-line description> | <n> | [`<file>.md`](./<file>.md) |
+| …       |                                           |     |                               |
+
+<!-- One sentence justifying scale decomposition if used (e.g., cost spans 30× across
+scales so "excursion" is split into light and heavy tiers). -->
+
+## Raw data
+
+<!-- One subsection per scale. Use the actual scale names you used in the table above. -->
+
+### <Scale> — `<scenario-id>` (n=<count>)
+
+| Run start (UTC) | <variant-a> tokens / cost | <variant-b> tokens / cost | <variant-c> tokens / cost |
+|---|---|---|---|
+| HH:MM | | | |
+| …     | | | |
+| **Mean** | **<tokens> / <cost>** | **<tokens> / <cost>** | **<tokens> / <cost>** |
+| **Range** | <min> – <max> | <min> – <max> | <min> – <max> |
+
+<!-- Footnotes: use \* \† \‡ for unreliable cost rows, small-n caveats, variants
+introduced mid-set. Keep them inline-readable. -->
+
+**Cross-variant ratios (<scale>):**
+- <variant-a> / <variant-b> mean tokens: **<N×>** (per-run range <min>× – <max>× — <variance note>)
+- Mean cache hit rate: <variant-a> <pct>%, <variant-b> <pct>%, <variant-c> <pct>%
+
+<!-- One sentence of interpretation per ratio if warranted. Do not editorialize. -->
+
+### <Next Scale> — `<scenario-id>` (n=<count>)
+
+<!-- Single-run scales use a compact table instead of the repeated-run one: -->
+
+| Variant | Tokens | Cost | Duration | Cache hit |
+|---|---|---|---|---|
+| <variant-a> | | | | |
+| <variant-b> | | | | |
+| <variant-c> | | | | |
+
+### <Heavy Scale> — `<scenario-id>` (<n=1, cross-set> or similar)
+
+<!-- For cross-set runs, add columns for source run + eforge version: -->
+
+| Variant | Source run | eforge | Tokens | Cost | Duration | Cache hit |
+|---|---|---|---|---|---|---|
+| | | | | | | |
+
+<!-- Prose note explaining any failure/rerun and which data points are apples-to-apples
+vs. which carry a version or config confound. Link to the per-scenario file for details. -->
+
+## What replicated
+
+<!-- Numbered findings that held across multiple runs OR across multiple scales OR
+reproduced a prior eval's finding. Each finding: one-line headline, one paragraph of
+evidence (numbers + per-scenario file refs). No finding here that rests on n=1 alone.
+Link to prior eval(s) that this replicated. -->
+
+**1. <Headline finding>.** <Evidence paragraph with numbers and file links.>
+
+**2. <Headline finding>.** <…>
+
+**3. <Headline finding>.** <…>
+
+## What did not replicate
+
+<!-- Required when behavioral claims disagree between runs/scales. Typical structure:
+a table with dimensions × scales showing where findings diverge, followed by one
+paragraph explaining what this means methodologically.
+
+DO NOT pick a winner here. The point is that picking one would be premature. -->
+
+<dimension-vs-scale table or bulleted list of disagreements>
+
+<interpretive paragraph: "both positions find n=1 support" type language>
+
+## Confounds
+
+<!-- Required if any variant ran under different conditions. Name each confound,
+say which variants / scales it affects, and whether it invalidates specific claims. -->
+
+**<Confound name>.** <Description. Which variants/scales affected. What claims it
+complicates.>
+
+**Sample sizes.** <State them. Reference prior eval's findings on what replicates
+at these sample sizes, if known.>
+
+## Methodological note
+
+<!-- Required when sample sizes differ across metric types, or when the eval's design
+imposes limits on what claims it can support. Typical closing: name the scenarios
+that would need re-running with n ≥ 3 per variant for a clean claim. State that no
+such claim is published here. -->
+
+<paragraph>
+
+## Files
+
+- [`<file>.md`](./<file>.md) — <one-line description>
+- …

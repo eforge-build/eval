@@ -21,7 +21,7 @@ import { parse as parseYaml } from 'yaml';
 import { loadScenarios, loadBackends, expandScenarioBackends, deriveGroupId } from './scenarios.js';
 import { buildResult, type BuildResultOpts } from './build-result.js';
 import { checkExpectations, type ExpectConfig } from './check-expectations.js';
-import type { ExpandedScenario, ScenarioResult } from './types.js';
+import type { ExpandedScenario, ExpectationCheck, ScenarioResult } from './types.js';
 
 // --- Constants ---
 
@@ -651,6 +651,7 @@ async function runScenarioWithRepeats(
 
   // Write aggregate result.json
   const runs: Array<{ run: number; passed: boolean }> = [];
+  const perRunExpectations: Array<{ run: number; passed: boolean; checks: ExpectationCheck[] }> = [];
   let totalInputTokens = 0,
     totalOutputTokens = 0,
     totalTokens = 0,
@@ -675,7 +676,18 @@ async function runScenarioWithRepeats(
       totalCost += r.metrics.costUsd || 0;
     }
     runs.push({ run: i, passed: isScenarioPassed(r as ScenarioResult) });
+    if (r.expectations) {
+      perRunExpectations.push({ run: i, passed: r.expectations.passed, checks: r.expectations.checks });
+    }
   }
+
+  const aggregateExpectations = perRunExpectations.length > 0
+    ? {
+        passed: perRunExpectations.every((e) => e.passed),
+        passRate: perRunExpectations.filter((e) => e.passed).length / perRunExpectations.length,
+        perRun: perRunExpectations,
+      }
+    : undefined;
 
   const aggregate = {
     scenario: expanded.id,
@@ -689,6 +701,7 @@ async function runScenarioWithRepeats(
     passRate: runs.length > 0 ? runPassed / runs.length : 0,
     repeatCount,
     runs,
+    ...(aggregateExpectations && { expectations: aggregateExpectations }),
     metrics: {
       tokens: { input: totalInputTokens, output: totalOutputTokens, total: totalTokens, cacheRead: totalCacheRead, cacheCreation: totalCacheCreation },
       costUsd: totalCost,
