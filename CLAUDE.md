@@ -40,7 +40,7 @@ The harness is a TypeScript pipeline:
 
 ### Backend isolation
 
-Eforge resolves the active backend profile via a 5-step precedence chain: project marker → project config → user marker (`~/.config/eforge/.active-backend`) → user config → none. The eval runner pins the selected backend at **step 1** by copying its profile into each temp workspace's `eforge/backends/` and writing `eforge/.active-backend`. This isolates eval results from whatever a developer has configured at user scope.
+Eforge resolves the active backend profile via a 3-step precedence chain: project marker (`eforge/.active-backend`) → user marker (`~/.config/eforge/.active-backend`) → none. The eval runner pins the selected backend at **step 1** by copying its profile into each temp workspace's `eforge/backends/` and writing `eforge/.active-backend`. This isolates eval results from whatever a developer has configured at user scope.
 
 ### Data flow
 

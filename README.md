@@ -35,7 +35,7 @@ Scenario filters match on the base scenario ID (prefix-expanded across all selec
 
 ### Backend isolation
 
-Eval runs pin the chosen backend profile into the workspace at step 1 of eforge's 5-step [profile resolution chain](../eforge/packages/engine/src/config.ts) by copying the profile file into the workspace's `eforge/backends/` and writing a project-scope `eforge/.active-backend` marker. This means eval results are **not** affected by whatever backend a developer has set in `~/.config/eforge/` (user-scope marker or config).
+Eval runs pin the chosen backend profile into the workspace at step 1 of eforge's 3-step [profile resolution chain](../eforge/packages/engine/src/config.ts) by copying the profile file into the workspace's `eforge/backends/` and writing a project-scope `eforge/.active-backend` marker. This means eval results are **not** affected by whatever backend a developer has set in `~/.config/eforge/` (user-scope marker or profile files).
 
 ### Environment variables
 

@@ -297,17 +297,14 @@ async function startMonitor(eforgeBin: string): Promise<string | undefined> {
 // --- Backend profile pin ---
 
 // Copies the named backend profile into the workspace and writes the project
-// marker so eforge resolves the profile via step 1 of its 5-step precedence
-// chain, insulating eval runs from the developer's user-scope eforge settings
-// (~/.config/eforge/.active-backend, ~/.config/eforge/config.yaml's
-// `backend:` field, or ~/.config/eforge/backends/).
+// marker so eforge resolves the profile via step 1 of its precedence chain,
+// insulating eval runs from the developer's user-scope eforge settings
+// (~/.config/eforge/.active-backend or ~/.config/eforge/backends/).
 //
 // Precedence (highest to lowest):
 //   1. eforge/.active-backend (project marker)        ← we write this
-//   2. eforge/config.yaml `backend:` field
-//   3. ~/.config/eforge/.active-backend (user marker)
-//   4. ~/.config/eforge/config.yaml `backend:` field
-//   5. none
+//   2. ~/.config/eforge/.active-backend (user marker)
+//   3. none
 function pinBackendProfile(workspace: string, backendName: string): void {
   const sourceProfile = join(BACKENDS_DIR, `${backendName}.yaml`);
   if (!existsSync(sourceProfile)) {
