@@ -19,14 +19,14 @@ pnpm install
 `--backend` is required and names one or more backend profiles from [`eforge/backends/`](./eforge/backends/). Comma-separated backends run in parallel per scenario.
 
 ```bash
-./run.sh --backend claude-sdk todo-api-errand-health-check              # One scenario, one backend
-./run.sh --backend claude-sdk,pi-codex todo-api-errand-health-check     # Same scenario, two backends in parallel
-./run.sh --backend claude-sdk todo-api-errand-health-check--claude-sdk  # Exact expanded ID
-./run.sh --backend claude-sdk --all                                     # Every scenario
-./run.sh --backend claude-sdk --all --env-file .env                     # With extra env vars (e.g. Langfuse creds)
-./run.sh --backend claude-sdk --all --repeat 3                          # Run each scenario 3 times, aggregate pass rate
-./run.sh --backend claude-sdk --all --compare 2026-04-15T12-00-00       # Diff against a prior run
-./run.sh --backend claude-sdk --dry-run todo-api-errand-health-check    # Set up workspace only, skip eforge
+./run.sh --backend claude-sdk-4-7 todo-api-errand-health-check                  # One scenario, one backend
+./run.sh --backend claude-sdk-4-7,pi-anthropic-4-7 todo-api-errand-health-check # Same scenario, two backends in parallel
+./run.sh --backend claude-sdk-4-7 todo-api-errand-health-check--claude-sdk-4-7  # Exact expanded ID
+./run.sh --backend claude-sdk-4-7 --all                                         # Every scenario
+./run.sh --backend claude-sdk-4-7 --all --env-file .env                         # With extra env vars (e.g. Langfuse creds)
+./run.sh --backend claude-sdk-4-7 --all --repeat 3                              # Run each scenario 3 times, aggregate pass rate
+./run.sh --backend claude-sdk-4-7 --all --compare 2026-04-15T12-00-00           # Diff against a prior run
+./run.sh --backend claude-sdk-4-7 --dry-run todo-api-errand-health-check        # Set up workspace only, skip eforge
 ./run.sh --cleanup                                                      # Remove all results
 ./open-monitor.sh                                                       # Open monitor UI over the shared DB
 ```

@@ -17,11 +17,11 @@ End-to-end evaluation harness for [eforge](https://github.com/eforge-build/eforg
 ```bash
 pnpm install                                              # Install dependencies
 pnpm type-check                                           # TypeScript type-check (lib/**/*.ts)
-./run.sh --backend claude-sdk --all                       # Run all scenarios with claude-sdk
-./run.sh --backend claude-sdk <scenario-id>               # Run a single scenario
-./run.sh --backend claude-sdk,pi-nemotron <scenario-id>   # Run with multiple backends (parallel)
-./run.sh --backend claude-sdk --dry-run                   # Set up workspaces without running eforge
-./run.sh --backend claude-sdk --env-file .env             # Source env vars (e.g. Langfuse credentials)
+./run.sh --backend claude-sdk-4-7 --all                       # Run all scenarios with the 4-7 SDK profile
+./run.sh --backend claude-sdk-4-7 <scenario-id>               # Run a single scenario
+./run.sh --backend claude-sdk-4-7,pi-anthropic-4-7 <scenario-id>  # Run with multiple backends (parallel)
+./run.sh --backend claude-sdk-4-7 --dry-run                   # Set up workspaces without running eforge
+./run.sh --backend claude-sdk-4-7 --env-file .env             # Source env vars (e.g. Langfuse credentials)
 ./run.sh --cleanup                                        # Remove all results
 ```
 
@@ -31,7 +31,7 @@ The harness is a TypeScript pipeline:
 
 1. **`run.sh`** — Thin wrapper that delegates to `npx tsx lib/runner.ts`.
 2. **`scenarios.yaml`** — Defines **what to build**: fixture, PRD, validation commands, and behavioral expectations. Contains no backend configuration.
-3. **`eforge/backends/*.yaml`** — Defines **how to build**: one plain eforge [backend profile](../eforge/packages/engine/src/config.ts) file per backend (e.g. `claude-sdk.yaml`, `pi-nemotron.yaml`). Names come from filenames; selected at run time via `--backend`.
+3. **`eforge/backends/*.yaml`** — Defines **how to build**: one plain eforge [backend profile](../eforge/packages/engine/src/config.ts) file per backend (e.g. `claude-sdk-4-7.yaml`, `pi-anthropic-4-7.yaml`). Names come from filenames; selected at run time via `--backend`.
 4. **`backend-envs.yaml`** — Maps backend names to env files (for API keys etc.). Backends without an entry here run without a custom env file.
 5. **`lib/runner.ts`** — Main orchestrator. Cross-products scenarios with selected backends, groups backends of the same scenario for parallel execution, pins the backend profile into each workspace, runs eforge, validates, and checks expectations.
 6. **`lib/build-result.ts`** — Builds `result.json` from eforge logs and the shared SQLite monitor DB (`results/monitor.db`). Extracts token usage, cost, phase durations, per-agent/per-model breakdowns, review metrics, and the backend profile used.

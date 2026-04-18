@@ -139,7 +139,7 @@ export interface BackendDef {
 }
 
 export interface ExpandedScenario {
-  id: string;              // e.g. "todo-api-errand-health-check--claude-sdk"
+  id: string;              // e.g. "todo-api-errand-health-check--claude-sdk-4-7"
   scenario: ScenarioMeta;  // the base scenario
   backend: BackendDef;     // the backend profile applied
 }

@@ -73,7 +73,7 @@ server.tool(
   'Spawn an eval run. Returns immediately with a runId (timestamp). Use eval_run_status to check completion.',
   {
     scenarios: z.array(z.string()).optional().describe('Optional list of scenario IDs to run (prefix match supported)'),
-    backend: z.string().describe('Comma-separated backend profile names to run (e.g. "claude-sdk" or "claude-sdk,pi-codex")'),
+    backend: z.string().describe('Comma-separated backend profile names to run (e.g. "claude-sdk-4-7" or "claude-sdk-4-7,pi-anthropic-4-7")'),
     repeat: z.number().optional().describe('Number of times to repeat each scenario'),
     compare: z.string().optional().describe('Timestamp of a previous run to compare against'),
   },

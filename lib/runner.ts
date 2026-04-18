@@ -123,7 +123,7 @@ backend-envs.yaml. When multiple backends are specified, they run in parallel
 for each scenario.
 
 Options:
-  --backend LIST         Comma-separated backend profile names to run (required, e.g. claude-sdk,pi-codex)
+  --backend LIST         Comma-separated backend profile names to run (required, e.g. claude-sdk-4-7,pi-anthropic-4-7)
   --all                  Run all scenarios
   --dry-run              Set up workspaces but skip eforge and validation
   --env-file FILE        Source environment variables (e.g. Langfuse credentials)
