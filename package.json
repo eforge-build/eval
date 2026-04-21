@@ -8,14 +8,14 @@
     "mcp-server": "npx tsx mcp-server/index.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1",
-    "zod": "^3.25"
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@types/node": "^25.5.0",
-    "tsx": "^4",
-    "typescript": "^5",
-    "yaml": "^2"
+    "@types/node": "^25.6.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "yaml": "^2.8.3"
   },
   "engines": {
     "node": ">=22.6.0"

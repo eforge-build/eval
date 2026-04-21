@@ -30,6 +30,27 @@ Run a controlled 4.7 comparison with `--backend claude-sdk-4-7,pi-anthropic-4-7`
 - Prompt-caching behavior, retry policy, cost/latency characteristics
 - Anything else specific to each SDK's request pipeline
 
+## `-no-subagents` variants
+
+For each `claude-sdk-*.yaml` profile there is a sibling `claude-sdk-*-no-subagents.yaml` that is identical except it sets:
+
+```yaml
+claudeSdk:
+  disableSubagents: true
+```
+
+This appends `'Task'` to `disallowedTools` on every agent run, so the Claude Code `Task` tool is unavailable and roles cannot fan out into subagents. Pair a profile with its `-no-subagents` sibling to measure the contribution of subagent usage to a run:
+
+| Lane | Profile | Sibling |
+| --- | --- | --- |
+| opus-4-7 | `claude-sdk-4-7.yaml` | `claude-sdk-4-7-no-subagents.yaml` |
+| opus-4-6 | `claude-sdk-4-6.yaml` | `claude-sdk-4-6-no-subagents.yaml` |
+| sonnet-4-6 (balanced) | `claude-sdk-balanced.yaml` | `claude-sdk-balanced-no-subagents.yaml` |
+
+Example: `--backend claude-sdk-4-7,claude-sdk-4-7-no-subagents`.
+
+There is no Pi counterpart — Pi has no `Task` tool / subagent concept, so `claudeSdk.disableSubagents` is Claude SDK-only.
+
 ## Other profiles
 
 `claude-sdk-balanced.yaml` and the `pi-{codex,free,gemma4,glm,nemotron}.yaml` profiles are out of the controlled-comparison pairs above. Use them for separate experiments.
