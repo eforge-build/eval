@@ -1,0 +1,6 @@
+backend: pi
+agents:
+  models:
+    max:
+      provider: openrouter
+      id: moonshotai/kimi-k2.6
