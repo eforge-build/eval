@@ -1,0 +1,6 @@
+backend: pi
+agents:
+  models:
+    max:
+      provider: openai-codex
+      id: gpt-5.5
