@@ -2,7 +2,7 @@
 // Check scenario expectations against monitor DB events.
 // Usage: npx tsx check-expectations.ts <result.json> <expect-json> <scenario-dir> <monitor-db-path>
 //
-// Reads plan:pipeline and plan:skip events from the shared monitor DB,
+// Reads planning:pipeline and planning:skip events from the shared monitor DB,
 // checks expect config, and writes an `expectations` key into result.json.
 
 process.removeAllListeners('warning');
@@ -37,7 +37,7 @@ interface PipelineEvent {
 }
 
 /**
- * Read plan:pipeline event from monitor DB for the given run IDs.
+ * Read planning:pipeline event from monitor DB for the given run IDs.
  */
 function readPipelineEvent(dbPath: string, runIds: string[]): PipelineEvent | undefined {
   if (runIds.length === 0) return undefined;
@@ -60,7 +60,7 @@ function readPipelineEvent(dbPath: string, runIds: string[]): PipelineEvent | un
     const runFilter = `AND run_id IN (${placeholders})`;
 
     const stmt = db.prepare(
-      `SELECT data FROM events WHERE type = 'plan:pipeline' ${runFilter} LIMIT 1`,
+      `SELECT data FROM events WHERE type = 'planning:pipeline' ${runFilter} LIMIT 1`,
     );
     const row = stmt.get(...runIds) as unknown as { data: string } | undefined;
     if (!row) return undefined;
@@ -74,7 +74,7 @@ function readPipelineEvent(dbPath: string, runIds: string[]): PipelineEvent | un
 }
 
 /**
- * Check whether a plan:skip event exists in the monitor DB.
+ * Check whether a planning:skip event exists in the monitor DB.
  */
 function hasSkipEvent(dbPath: string, runIds: string[]): boolean {
   if (runIds.length === 0) return false;
@@ -97,7 +97,7 @@ function hasSkipEvent(dbPath: string, runIds: string[]): boolean {
     const runFilter = `AND run_id IN (${placeholders})`;
 
     const stmt = db.prepare(
-      `SELECT COUNT(*) as cnt FROM events WHERE type = 'plan:skip' ${runFilter}`,
+      `SELECT COUNT(*) as cnt FROM events WHERE type = 'planning:skip' ${runFilter}`,
     );
     const row = stmt.get(...runIds) as unknown as { cnt: number };
     return row.cnt > 0;
