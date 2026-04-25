@@ -1,4 +1,9 @@
-backend: claude-sdk
+agentRuntimes:
+  default:
+    harness: claude-sdk
+    claudeSdk:
+      disableSubagents: true
+defaultAgentRuntime: default
 agents:
   roles:
     builder:

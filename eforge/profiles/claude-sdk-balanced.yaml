@@ -1,4 +1,7 @@
-backend: claude-sdk
+agentRuntimes:
+  default:
+    harness: claude-sdk
+defaultAgentRuntime: default
 agents:
   roles:
     builder:
@@ -13,5 +16,3 @@ agents:
       modelClass: balanced
     formatter:
       modelClass: balanced
-claudeSdk:
-  disableSubagents: true

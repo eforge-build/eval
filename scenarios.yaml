@@ -2,8 +2,8 @@
 # Each scenario defines a fixture + PRD to run eforge against.
 # Fixtures live in eval/fixtures/<fixture>/ as plain project files (no .git).
 #
-# Backends (backend/model profiles) are defined separately as eforge profile
-# files in eforge/backends/, and applied at run time via --backend on the CLI.
+# Profiles (harness/model profiles) are defined separately as eforge profile
+# files in eforge/profiles/, and applied at run time via --profile on the CLI.
 
 scenarios:
   # --- todo-api ---

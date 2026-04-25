@@ -1,10 +1,13 @@
-backend: pi
+agentRuntimes:
+  default:
+    harness: pi
+defaultAgentRuntime: default
 agents:
   effort: high
   models:
     max:
       provider: anthropic
-      id: claude-opus-4-7
+      id: claude-opus-4-6
     balanced:
       provider: anthropic
       id: claude-sonnet-4-6

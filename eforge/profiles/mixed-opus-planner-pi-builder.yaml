@@ -1,0 +1,20 @@
+agentRuntimes:
+  opus:
+    harness: claude-sdk
+  pi-openrouter:
+    harness: pi
+    pi:
+      apiKey: "env:OPENROUTER_API_KEY"
+defaultAgentRuntime: opus
+agents:
+  models:
+    max:
+      id: claude-opus-4-7
+    balanced:
+      id: claude-sonnet-4-6
+  roles:
+    builder:
+      agentRuntime: pi-openrouter
+      model:
+        provider: openrouter
+        id: qwen/qwen3-coder

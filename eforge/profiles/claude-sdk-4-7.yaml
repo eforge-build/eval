@@ -1,4 +1,7 @@
-backend: claude-sdk
+agentRuntimes:
+  default:
+    harness: claude-sdk
+defaultAgentRuntime: default
 agents:
   effort: high
   models:

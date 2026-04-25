@@ -71,7 +71,7 @@ export interface ExpectationCheck {
 
 export interface ScenarioResult {
   scenario: string;
-  backend?: { name: string; profile: Record<string, unknown>; envFile?: string };
+  profile?: { name: string; config: Record<string, unknown>; envFiles?: string[] };
   timestamp: string;
   eforgeVersion: string;
   eforgeCommit: string;
@@ -133,15 +133,15 @@ export interface ScenarioMeta {
   };
 }
 
-// --- Backend types ---
+// --- Profile types ---
 
-export interface BackendDef {
+export interface ProfileDef {
   name: string;
-  envFile?: string;
+  envFiles?: string[];
 }
 
 export interface ExpandedScenario {
   id: string;              // e.g. "todo-api-errand-health-check--claude-sdk-4-7"
   scenario: ScenarioMeta;  // the base scenario
-  backend: BackendDef;     // the backend profile applied
+  profile: ProfileDef;     // the profile applied
 }

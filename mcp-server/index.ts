@@ -8,14 +8,14 @@ import { z } from 'zod';
 import { spawn } from 'child_process';
 import { readFileSync, readdirSync, existsSync } from 'fs';
 import { join, resolve } from 'path';
-import { loadScenarios, loadBackends } from '../lib/scenarios.js';
+import { loadScenarios, loadProfiles } from '../lib/scenarios.js';
 
 const PROJECT_ROOT = resolve(import.meta.dirname, '..');
 const RESULTS_DIR = join(PROJECT_ROOT, 'results');
 const RUN_SCRIPT = join(PROJECT_ROOT, 'run.sh');
 const SCENARIOS_FILE = join(PROJECT_ROOT, 'scenarios.yaml');
-const BACKENDS_DIR = join(PROJECT_ROOT, 'eforge', 'backends');
-const BACKEND_ENVS_FILE = join(PROJECT_ROOT, 'backend-envs.yaml');
+const PROFILES_DIR = join(PROJECT_ROOT, 'eforge', 'profiles');
+const PROFILE_ENVS_FILE = join(PROJECT_ROOT, 'profile-envs.yaml');
 const DAEMON_LOCK = join(PROJECT_ROOT, '.eforge', 'daemon.lock');
 
 const server = new McpServer({
@@ -53,17 +53,17 @@ server.tool(
   },
 );
 
-// --- Tool: eval_backends ---
+// --- Tool: eval_profiles ---
 server.tool(
-  'eval_backends',
-  'List available backend profiles from eforge/backends/ (merged with backend-envs.yaml for env-file mappings).',
+  'eval_profiles',
+  'List available profiles from eforge/profiles/ (merged with profile-envs.yaml for env-file mappings).',
   {},
   async () => {
-    const backends = loadBackends(BACKENDS_DIR, BACKEND_ENVS_FILE).map((b) => ({
-      name: b.name,
-      envFile: b.envFile,
+    const profiles = loadProfiles(PROFILES_DIR, PROFILE_ENVS_FILE).map((p) => ({
+      name: p.name,
+      envFiles: p.envFiles ?? [],
     }));
-    return { content: [{ type: 'text', text: JSON.stringify(backends) }] };
+    return { content: [{ type: 'text', text: JSON.stringify(profiles) }] };
   },
 );
 
@@ -73,12 +73,12 @@ server.tool(
   'Spawn an eval run. Returns immediately with a runId (timestamp). Use eval_run_status to check completion.',
   {
     scenarios: z.array(z.string()).optional().describe('Optional list of scenario IDs to run (prefix match supported)'),
-    backend: z.string().describe('Comma-separated backend profile names to run (e.g. "claude-sdk-4-7" or "claude-sdk-4-7,pi-anthropic-4-7")'),
+    profile: z.string().describe('Comma-separated profile names to run (e.g. "claude-sdk-4-7" or "claude-sdk-4-7,pi-anthropic-4-7")'),
     repeat: z.number().optional().describe('Number of times to repeat each scenario'),
     compare: z.string().optional().describe('Timestamp of a previous run to compare against'),
   },
-  async ({ scenarios, backend, repeat, compare }) => {
-    const args: string[] = ['--backend', backend];
+  async ({ scenarios, profile, repeat, compare }) => {
+    const args: string[] = ['--profile', profile];
 
     if (repeat && repeat > 1) {
       args.push('--repeat', String(repeat));
@@ -358,7 +358,7 @@ server.tool(
 // --- Tool: eval_compare ---
 server.tool(
   'eval_compare',
-  'Return the backend comparison report for a given run.',
+  'Return the profile comparison report for a given run.',
   {
     timestamp: z.string().describe('The run timestamp'),
   },
@@ -370,7 +370,7 @@ server.tool(
           {
             type: 'text',
             text: JSON.stringify({
-              error: `No comparison.json found for run ${timestamp}. This may be a single-backend run with no comparisons.`,
+              error: `No comparison.json found for run ${timestamp}. This may be a single-profile run with no comparisons.`,
             }),
           },
         ],
