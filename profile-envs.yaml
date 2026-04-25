@@ -1,0 +1,25 @@
+# Env-file mappings for profiles defined in eforge/profiles/.
+# Profile files themselves are plain eforge profile files; this file only
+# associates extra env files (API keys, etc.) with specific profiles.
+# Profiles without an entry here run without a custom env file.
+#
+# Each entry accepts either:
+#   envFiles: [path1, path2, ...]   (list — sourced in order, later files win)
+#   envFile: path                   (sugar for a single-element envFiles list)
+
+profiles:
+  pi-nemotron:
+    envFiles:
+      - env/pi.env
+  pi-glm:
+    envFiles:
+      - env/pi.env
+  pi-free:
+    envFiles:
+      - env/pi.env
+  anthropic-api:
+    envFiles:
+      - env/anthropic.env
+  anthropic-api-4-6:
+    envFiles:
+      - env/anthropic.env

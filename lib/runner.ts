@@ -18,7 +18,7 @@ import { join, resolve } from 'path';
 import { tmpdir } from 'os';
 import { mkdtempSync, realpathSync } from 'fs';
 import { parse as parseYaml } from 'yaml';
-import { loadScenarios, loadBackends, expandScenarioBackends, deriveGroupId } from './scenarios.js';
+import { loadScenarios, loadProfiles, expandScenarioProfiles, deriveGroupId } from './scenarios.js';
 import { buildResult, type BuildResultOpts } from './build-result.js';
 import { checkExpectations, type ExpectConfig } from './check-expectations.js';
 import type { ExpandedScenario, ExpectationCheck, ScenarioResult } from './types.js';
@@ -29,8 +29,8 @@ const SCRIPT_DIR = resolve(import.meta.dirname, '..');
 const FIXTURES_DIR = join(SCRIPT_DIR, 'fixtures');
 const RESULTS_DIR = join(SCRIPT_DIR, 'results');
 const SCENARIOS_FILE = join(SCRIPT_DIR, 'scenarios.yaml');
-const BACKENDS_DIR = join(SCRIPT_DIR, 'eforge', 'backends');
-const BACKEND_ENVS_FILE = join(SCRIPT_DIR, 'backend-envs.yaml');
+const PROFILES_DIR = join(SCRIPT_DIR, 'eforge', 'profiles');
+const PROFILE_ENVS_FILE = join(SCRIPT_DIR, 'profile-envs.yaml');
 const MAX_RUNS = 50;
 
 // --- ANSI colors ---
@@ -45,7 +45,7 @@ const RED = '\x1b[31m';
 
 interface RunArgs {
   filters: string[];
-  backendNames: string[];
+  profileNames: string[];
   repeatCount: number;
   compareTimestamp: string;
   envFile: string;
@@ -56,7 +56,7 @@ interface RunArgs {
 function parseArgs(argv: string[]): RunArgs {
   const args: RunArgs = {
     filters: [],
-    backendNames: [],
+    profileNames: [],
     repeatCount: 1,
     compareTimestamp: '',
     envFile: '',
@@ -94,10 +94,10 @@ function parseArgs(argv: string[]): RunArgs {
         args.all = true;
         i++;
         break;
-      case '--backend':
-      case '--backends':
-        if (i + 1 >= rest.length) { console.error('Error: --backend requires a comma-separated list'); process.exit(1); }
-        args.backendNames = rest[i + 1].split(',').map((v) => v.trim());
+      case '--profile':
+      case '--profiles':
+        if (i + 1 >= rest.length) { console.error('Error: --profile requires a comma-separated list'); process.exit(1); }
+        args.profileNames = rest[i + 1].split(',').map((v) => v.trim());
         i += 2;
         break;
       case '--help':
@@ -113,17 +113,17 @@ function parseArgs(argv: string[]): RunArgs {
 }
 
 function printHelp(): void {
-  console.log(`Usage: run.sh --backend NAME[,NAME] [OPTIONS] SCENARIO_ID [SCENARIO_ID...]
-       run.sh --backend NAME[,NAME] --all [OPTIONS]
+  console.log(`Usage: run.sh --profile NAME[,NAME] [OPTIONS] SCENARIO_ID [SCENARIO_ID...]
+       run.sh --profile NAME[,NAME] --all [OPTIONS]
 
-Runs eval scenarios with the specified backend profile(s).
-Scenarios are defined in scenarios.yaml; backend profiles are plain eforge
-profile files in eforge/backends/. Env-file associations live in
-backend-envs.yaml. When multiple backends are specified, they run in parallel
+Runs eval scenarios with the specified profile(s).
+Scenarios are defined in scenarios.yaml; profiles are plain eforge
+profile files in eforge/profiles/. Env-file associations live in
+profile-envs.yaml. When multiple profiles are specified, they run in parallel
 for each scenario.
 
 Options:
-  --backend LIST         Comma-separated backend profile names to run (required, e.g. claude-sdk-4-7,pi-anthropic-4-7)
+  --profile LIST         Comma-separated profile names to run (required, e.g. claude-sdk-4-7,pi-anthropic-4-7)
   --all                  Run all scenarios
   --dry-run              Set up workspaces but skip eforge and validation
   --env-file FILE        Source environment variables (e.g. Langfuse credentials)
@@ -294,32 +294,32 @@ async function startMonitor(eforgeBin: string): Promise<string | undefined> {
   return undefined;
 }
 
-// --- Backend profile pin ---
+// --- Profile pin ---
 
-// Copies the named backend profile into the workspace and writes the project
+// Copies the named profile into the workspace and writes the project
 // marker so eforge resolves the profile via step 1 of its precedence chain,
 // insulating eval runs from the developer's user-scope eforge settings
-// (~/.config/eforge/.active-backend or ~/.config/eforge/backends/).
+// (~/.config/eforge/.active-profile or ~/.config/eforge/profiles/).
 //
 // Precedence (highest to lowest):
-//   1. eforge/.active-backend (project marker)        ← we write this
-//   2. ~/.config/eforge/.active-backend (user marker)
+//   1. eforge/.active-profile (project marker)        ← we write this
+//   2. ~/.config/eforge/.active-profile (user marker)
 //   3. none
-function pinBackendProfile(workspace: string, backendName: string): void {
-  const sourceProfile = join(BACKENDS_DIR, `${backendName}.yaml`);
+function pinActiveProfile(workspace: string, profileName: string): void {
+  const sourceProfile = join(PROFILES_DIR, `${profileName}.yaml`);
   if (!existsSync(sourceProfile)) {
-    throw new Error(`Backend profile not found: ${sourceProfile}`);
+    throw new Error(`Profile not found: ${sourceProfile}`);
   }
   const eforgeDir = join(workspace, 'eforge');
-  const workspaceBackendsDir = join(eforgeDir, 'backends');
-  mkdirSync(workspaceBackendsDir, { recursive: true });
-  cpSync(sourceProfile, join(workspaceBackendsDir, `${backendName}.yaml`));
-  writeFileSync(join(eforgeDir, '.active-backend'), `${backendName}\n`);
+  const workspaceProfilesDir = join(eforgeDir, 'profiles');
+  mkdirSync(workspaceProfilesDir, { recursive: true });
+  cpSync(sourceProfile, join(workspaceProfilesDir, `${profileName}.yaml`));
+  writeFileSync(join(eforgeDir, '.active-profile'), `${profileName}\n`);
 }
 
-/** Read a backend profile file as a plain object, for result.json recording. */
-function readBackendProfile(backendName: string): Record<string, unknown> {
-  const path = join(BACKENDS_DIR, `${backendName}.yaml`);
+/** Read a profile file as a plain object, for result.json recording. */
+function readProfile(profileName: string): Record<string, unknown> {
+  const path = join(PROFILES_DIR, `${profileName}.yaml`);
   const raw = readFileSync(path, 'utf8');
   const parsed = parseYaml(raw);
   return (parsed && typeof parsed === 'object') ? (parsed as Record<string, unknown>) : {};
@@ -451,8 +451,8 @@ interface ScenarioRunResult {
 
 async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
   const { expanded, scenarioDir, eforgeBin, eforgeVersion, eforgeCommit, eforgeDirty, monitorDbPath, dryRun, globalEnvVars, parallel } = opts;
-  const { scenario, backend } = expanded;
-  const label = backend.name;
+  const { scenario, profile } = expanded;
+  const label = profile.name;
   const prefix = parallel ? `${DIM}[${label}]${RESET} ` : '';
   const log = (msg: string) => console.log(`${prefix}${msg}`);
 
@@ -474,11 +474,11 @@ async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
   cpSync(fixtureDir, workspace, { recursive: true });
   writeFileSync(join(scenarioDir, 'workspace-path.txt'), workspace);
 
-  // Step 2b: Pin the active backend profile into the workspace so the eval
+  // Step 2b: Pin the active profile into the workspace so the eval
   // run is not polluted by any user-scope eforge config on the developer's
-  // machine. See pinBackendProfile() for the precedence rationale.
-  log(`  Pinning backend profile '${backend.name}'...`);
-  pinBackendProfile(workspace, backend.name);
+  // machine. See pinActiveProfile() for the precedence rationale.
+  log(`  Pinning profile '${profile.name}'...`);
+  pinActiveProfile(workspace, profile.name);
 
   // Step 2c: Init git
   log('  Initializing git repo...');
@@ -493,16 +493,16 @@ async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
   envOverrides['EFORGE_MONITOR_DB'] = monitorDbPath;
   envOverrides['EFORGE_TRACE_TAGS'] = `eval,${expanded.id}`;
 
-  // Source backend env file
-  if (backend.envFile) {
-    const envFilePath = join(SCRIPT_DIR, backend.envFile);
+  // Source profile env files in list order (later files override earlier on key collision)
+  for (const envFileEntry of profile.envFiles ?? []) {
+    const envFilePath = join(SCRIPT_DIR, envFileEntry);
     if (!existsSync(envFilePath)) {
-      log(`  ${RED}ERROR${RESET}: Backend env file not found: ${backend.envFile}`);
-      writeErrorResult(scenarioDir, expanded.id, eforgeVersion, eforgeCommit, eforgeDirty, startTime, `Backend env file not found: ${backend.envFile}`);
+      log(`  ${RED}ERROR${RESET}: Profile env file not found: ${envFileEntry}`);
+      writeErrorResult(scenarioDir, expanded.id, eforgeVersion, eforgeCommit, eforgeDirty, startTime, `Profile env file not found: ${envFileEntry}`);
       cleanupWorkspace(workspace);
       return { scenario: expanded.id, passed: false };
     }
-    log(`  Sourcing env file: ${backend.envFile}`);
+    log(`  Sourcing env file: ${envFileEntry}`);
     Object.assign(envOverrides, loadEnvFile(envFilePath));
   }
 
@@ -536,7 +536,7 @@ async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
   const endTime = Date.now();
   const duration = Math.round((endTime - startTime) / 1000);
 
-  // Step 6: Build result.json (records the backend profile)
+  // Step 6: Build result.json (records the profile)
   const result = buildResult({
     outputFile: join(scenarioDir, 'result.json'),
     scenario: expanded.id,
@@ -548,10 +548,10 @@ async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
     validation,
     monitorDbPath,
     workspace,
-    backend: {
-      name: backend.name,
-      profile: readBackendProfile(backend.name),
-      envFile: backend.envFile,
+    profile: {
+      name: profile.name,
+      config: readProfile(profile.name),
+      envFiles: profile.envFiles,
     },
   });
 
@@ -989,27 +989,27 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Load scenarios and backends
+  // Load scenarios and profiles
   const allScenarios = loadScenarios(SCENARIOS_FILE);
-  const allBackends = loadBackends(BACKENDS_DIR, BACKEND_ENVS_FILE);
+  const allProfiles = loadProfiles(PROFILES_DIR, PROFILE_ENVS_FILE);
 
-  // Require --backend
-  if (args.backendNames.length === 0) {
-    console.error('Error: --backend is required. Specify one or more backend profile names.');
-    console.error(`Available backends: ${allBackends.map((b) => b.name).join(', ')}`);
+  // Require --profile
+  if (args.profileNames.length === 0) {
+    console.error('Error: --profile is required. Specify one or more profile names.');
+    console.error(`Available profiles: ${allProfiles.map((p) => p.name).join(', ')}`);
     process.exit(1);
   }
 
-  // Validate --backend names
-  const invalidBackends = args.backendNames.filter((n) => !allBackends.some((b) => b.name === n));
-  if (invalidBackends.length > 0) {
-    console.error(`Error: Unknown backend(s): ${invalidBackends.join(', ')}`);
-    console.error(`Available backends: ${allBackends.map((b) => b.name).join(', ')}`);
+  // Validate --profile names
+  const invalidProfiles = args.profileNames.filter((n) => !allProfiles.some((p) => p.name === n));
+  if (invalidProfiles.length > 0) {
+    console.error(`Error: Unknown profile(s): ${invalidProfiles.join(', ')}`);
+    console.error(`Available profiles: ${allProfiles.map((p) => p.name).join(', ')}`);
     process.exit(1);
   }
 
-  // Filter backends to requested names
-  const selectedBackends = allBackends.filter((b) => args.backendNames.includes(b.name));
+  // Filter profiles to requested names
+  const selectedProfiles = allProfiles.filter((p) => args.profileNames.includes(p.name));
 
   // Validate --compare
   if (args.compareTimestamp) {
@@ -1063,15 +1063,15 @@ async function main(): Promise<void> {
 
   console.log('Eforge Eval Run');
   console.log(`  Version: ${eforgeVersion}`);
-  console.log(`  Backends: ${selectedBackends.map((b) => b.name).join(', ')}`);
+  console.log(`  Profiles: ${selectedProfiles.map((p) => p.name).join(', ')}`);
   console.log(`  Results: ${runDir}`);
   if (monitorUrl) {
     console.log(`  Monitor: ${monitorUrl}`);
   }
   console.log('');
 
-  // Cross-product scenarios with backends and filter
-  const allExpanded = expandScenarioBackends(allScenarios, selectedBackends);
+  // Cross-product scenarios with profiles and filter
+  const allExpanded = expandScenarioProfiles(allScenarios, selectedProfiles);
   const expanded = filterExpandedScenarios(allExpanded, args.filters, args.all);
 
   if (expanded.length === 0) {
@@ -1093,7 +1093,7 @@ async function main(): Promise<void> {
     const isParallel = group.scenarios.length > 1;
 
     if (isParallel) {
-      console.log(`${BOLD}━━━ Group: ${group.groupId} (${group.scenarios.length} backends, parallel) ━━━${RESET}`);
+      console.log(`${BOLD}━━━ Group: ${group.groupId} (${group.scenarios.length} profiles, parallel) ━━━${RESET}`);
     }
 
     // Print scenario headers
@@ -1103,7 +1103,7 @@ async function main(): Promise<void> {
         console.log(`  ${e.scenario.description ?? ''}`);
         console.log(`  Fixture: ${e.scenario.fixture}`);
         console.log(`  PRD: ${e.scenario.prd}`);
-        console.log(`  Backend: ${e.backend.name}`);
+        console.log(`  Profile: ${e.profile.name}`);
         if (args.repeatCount > 1) console.log(`  Repeats: ${args.repeatCount}`);
         console.log('');
       }
@@ -1111,12 +1111,12 @@ async function main(): Promise<void> {
 
     if (isParallel) {
       for (const e of group.scenarios) {
-        console.log(`  ${DIM}[${e.backend.name}]${RESET} ${e.scenario.description ?? ''} (${e.scenario.fixture} / ${e.scenario.prd})`);
+        console.log(`  ${DIM}[${e.profile.name}]${RESET} ${e.scenario.description ?? ''} (${e.scenario.fixture} / ${e.scenario.prd})`);
       }
       console.log('');
     }
 
-    // Run backends in parallel (or single if only one)
+    // Run profiles in parallel (or single if only one)
     const promises = group.scenarios.map((e) => {
       total++;
       const scenarioDir = join(runDir, e.id);
@@ -1166,9 +1166,9 @@ async function main(): Promise<void> {
     console.log('  Analysis skipped (no data or error)');
   }
 
-  // Run backend comparison
+  // Run profile comparison
   console.log('');
-  console.log('Running backend comparison...');
+  console.log('Running profile comparison...');
   try {
     execSync(`npx tsx "${join(SCRIPT_DIR, 'lib', 'compare.ts')}" "${runDir}"`, {
       cwd: SCRIPT_DIR,

@@ -15,14 +15,14 @@ End-to-end evaluation harness for [eforge](https://github.com/eforge-build/eforg
 ## Commands
 
 ```bash
-pnpm install                                              # Install dependencies
-pnpm type-check                                           # TypeScript type-check (lib/**/*.ts)
-./run.sh --backend claude-sdk-4-7 --all                       # Run all scenarios with the 4-7 SDK profile
-./run.sh --backend claude-sdk-4-7 <scenario-id>               # Run a single scenario
-./run.sh --backend claude-sdk-4-7,pi-anthropic-4-7 <scenario-id>  # Run with multiple backends (parallel)
-./run.sh --backend claude-sdk-4-7 --dry-run                   # Set up workspaces without running eforge
-./run.sh --backend claude-sdk-4-7 --env-file .env             # Source env vars (e.g. Langfuse credentials)
-./run.sh --cleanup                                        # Remove all results
+pnpm install                                                  # Install dependencies
+pnpm type-check                                               # TypeScript type-check (lib/**/*.ts)
+./run.sh --profile claude-sdk-4-7 --all                       # Run all scenarios with the 4-7 SDK profile
+./run.sh --profile claude-sdk-4-7 <scenario-id>               # Run a single scenario
+./run.sh --profile claude-sdk-4-7,pi-anthropic-4-7 <scenario-id>  # Run with multiple profiles (parallel)
+./run.sh --profile claude-sdk-4-7 --dry-run                   # Set up workspaces without running eforge
+./run.sh --profile claude-sdk-4-7 --env-file .env             # Source env vars (e.g. Langfuse credentials)
+./run.sh --cleanup                                            # Remove all results
 ```
 
 ## Architecture
@@ -30,25 +30,25 @@ pnpm type-check                                           # TypeScript type-chec
 The harness is a TypeScript pipeline:
 
 1. **`run.sh`** — Thin wrapper that delegates to `npx tsx lib/runner.ts`.
-2. **`scenarios.yaml`** — Defines **what to build**: fixture, PRD, validation commands, and behavioral expectations. Contains no backend configuration.
-3. **`eforge/backends/*.yaml`** — Defines **how to build**: one plain eforge [backend profile](../eforge/packages/engine/src/config.ts) file per backend (e.g. `claude-sdk-4-7.yaml`, `pi-anthropic-4-7.yaml`). Names come from filenames; selected at run time via `--backend`.
-4. **`backend-envs.yaml`** — Maps backend names to env files (for API keys etc.). Backends without an entry here run without a custom env file.
-5. **`lib/runner.ts`** — Main orchestrator. Cross-products scenarios with selected backends, groups backends of the same scenario for parallel execution, pins the backend profile into each workspace, runs eforge, validates, and checks expectations.
-6. **`lib/build-result.ts`** — Builds `result.json` from eforge logs and the shared SQLite monitor DB (`results/monitor.db`). Extracts token usage, cost, phase durations, per-agent/per-model breakdowns, review metrics, and the backend profile used.
+2. **`scenarios.yaml`** — Defines **what to build**: fixture, PRD, validation commands, and behavioral expectations. Contains no profile configuration.
+3. **`eforge/profiles/*.yaml`** — Defines **how to build**: one plain eforge profile file per profile (e.g. `claude-sdk-4-7.yaml`, `pi-anthropic-4-7.yaml`). Names come from filenames; selected at run time via `--profile`.
+4. **`profile-envs.yaml`** — Maps profile names to env files (for API keys etc.). Profiles without an entry here run without a custom env file. Accepts `envFiles: [...]` (list) or `envFile: <single>` (sugar) per entry.
+5. **`lib/runner.ts`** — Main orchestrator. Cross-products scenarios with selected profiles, groups profiles of the same scenario for parallel execution, pins the profile into each workspace, runs eforge, validates, and checks expectations.
+6. **`lib/build-result.ts`** — Builds `result.json` from eforge logs and the shared SQLite monitor DB (`results/monitor.db`). Extracts token usage, cost, phase durations, per-agent/per-model breakdowns, review metrics, and the profile used.
 7. **`lib/check-expectations.ts`** — Checks scenario expectations (mode, build stages, skip) against monitor DB. Writes an `expectations` key into `result.json`.
-8. **`lib/compare.ts`** — Side-by-side backend comparison across eight dimensions (cost, tokens, duration, etc.).
+8. **`lib/compare.ts`** — Side-by-side profile comparison across eight dimensions (cost, tokens, duration, etc.).
 
-### Backend isolation
+### Profile isolation
 
-Eforge resolves the active backend profile via a 3-step precedence chain: project marker (`eforge/.active-backend`) → user marker (`~/.config/eforge/.active-backend`) → none. The eval runner pins the selected backend at **step 1** by copying its profile into each temp workspace's `eforge/backends/` and writing `eforge/.active-backend`. This isolates eval results from whatever a developer has configured at user scope.
+Eforge resolves the active profile via a 3-step precedence chain: project marker (`eforge/.active-profile`) → user marker (`~/.config/eforge/.active-profile`) → none. The eval runner pins the selected profile at **step 1** by copying its file into each temp workspace's `eforge/profiles/` and writing `eforge/.active-profile`. This isolates eval results from whatever a developer has configured at user scope.
 
 ### Data flow
 
 ```
 scenarios.yaml ────┐
-                    ├─► runner.ts ─► cross-product ─► for each (scenario, backend):
-eforge/backends/ ──┤                                    ├─ copy fixture to /tmp
-backend-envs.yaml ─┘                                    ├─ copy backend profile + write .active-backend
+                    ├─► runner.ts ─► cross-product ─► for each (scenario, profile):
+eforge/profiles/ ──┤                                    ├─ copy fixture to /tmp
+profile-envs.yaml ─┘                                    ├─ copy profile + write .active-profile
                                                         ├─ eforge run <prd>
                                                         ├─ validation commands
                                                         ├─ build-result.ts (reads monitor.db)
@@ -72,4 +72,4 @@ Scenarios can define `expect` in `scenarios.yaml` to assert behavioral propertie
 
 ### Results
 
-Results are gitignored. Each run creates `results/<timestamp>/` containing per-scenario `result.json`, `eforge.log`, validation logs, and an aggregate `summary.json`. Old runs are pruned to keep the most recent 50. Each `result.json` records the backend name + full profile used for reproducibility.
+Results are gitignored. Each run creates `results/<timestamp>/` containing per-scenario `result.json`, `eforge.log`, validation logs, and an aggregate `summary.json`. Old runs are pruned to keep the most recent 50. Each `result.json` records the profile name + full config used for reproducibility under `profile: { name, config, envFiles }`.

@@ -16,26 +16,26 @@ pnpm install
 
 ## Usage
 
-`--backend` is required and names one or more backend profiles from [`eforge/backends/`](./eforge/backends/). Comma-separated backends run in parallel per scenario.
+`--profile` is required and names one or more profiles from [`eforge/profiles/`](./eforge/profiles/). Comma-separated profiles run in parallel per scenario.
 
 ```bash
-./run.sh --backend claude-sdk-4-7 todo-api-errand-health-check                  # One scenario, one backend
-./run.sh --backend claude-sdk-4-7,pi-anthropic-4-7 todo-api-errand-health-check # Same scenario, two backends in parallel
-./run.sh --backend claude-sdk-4-7 todo-api-errand-health-check--claude-sdk-4-7  # Exact expanded ID
-./run.sh --backend claude-sdk-4-7 --all                                         # Every scenario
-./run.sh --backend claude-sdk-4-7 --all --env-file .env                         # With extra env vars (e.g. Langfuse creds)
-./run.sh --backend claude-sdk-4-7 --all --repeat 3                              # Run each scenario 3 times, aggregate pass rate
-./run.sh --backend claude-sdk-4-7 --all --compare 2026-04-15T12-00-00           # Diff against a prior run
-./run.sh --backend claude-sdk-4-7 --dry-run todo-api-errand-health-check        # Set up workspace only, skip eforge
+./run.sh --profile claude-sdk-4-7 todo-api-errand-health-check                  # One scenario, one profile
+./run.sh --profile claude-sdk-4-7,pi-anthropic-4-7 todo-api-errand-health-check # Same scenario, two profiles in parallel
+./run.sh --profile claude-sdk-4-7 todo-api-errand-health-check--claude-sdk-4-7  # Exact expanded ID
+./run.sh --profile claude-sdk-4-7 --all                                         # Every scenario
+./run.sh --profile claude-sdk-4-7 --all --env-file .env                         # With extra env vars (e.g. Langfuse creds)
+./run.sh --profile claude-sdk-4-7 --all --repeat 3                              # Run each scenario 3 times, aggregate pass rate
+./run.sh --profile claude-sdk-4-7 --all --compare 2026-04-15T12-00-00           # Diff against a prior run
+./run.sh --profile claude-sdk-4-7 --dry-run todo-api-errand-health-check        # Set up workspace only, skip eforge
 ./run.sh --cleanup                                                      # Remove all results
 ./open-monitor.sh                                                       # Open monitor UI over the shared DB
 ```
 
-Scenario filters match on the base scenario ID (prefix-expanded across all selected backends) or the fully expanded `<scenario-id>--<backend>` form.
+Scenario filters match on the base scenario ID (prefix-expanded across all selected profiles) or the fully expanded `<scenario-id>--<profile>` form.
 
-### Backend isolation
+### Profile isolation
 
-Eval runs pin the chosen backend profile into the workspace at step 1 of eforge's 3-step [profile resolution chain](../eforge/packages/engine/src/config.ts) by copying the profile file into the workspace's `eforge/backends/` and writing a project-scope `eforge/.active-backend` marker. This means eval results are **not** affected by whatever backend a developer has set in `~/.config/eforge/` (user-scope marker or profile files).
+Eval runs pin the chosen profile into the workspace at step 1 of eforge's 3-step [profile resolution chain](../eforge/packages/engine/src/config.ts) by copying the profile file into the workspace's `eforge/profiles/` and writing a project-scope `eforge/.active-profile` marker. This means eval results are **not** affected by whatever profile a developer has set in `~/.config/eforge/` (user-scope marker or profile files).
 
 ### Environment variables
 
@@ -45,27 +45,49 @@ Eval runs pin the chosen backend profile into the workspace at step 1 of eforge'
 | `EFORGE_MONITOR_DB` | (auto-set) | Shared SQLite DB for metrics. Set automatically by the harness. |
 | `EFORGE_TRACE_TAGS` | (auto-set) | Langfuse trace tags. Set automatically per scenario. |
 
-`--env-file` sources an additional dotenv-style file into the eforge child process (useful for Langfuse credentials or other global secrets). Per-backend secrets belong in the env-file mapping in [`backend-envs.yaml`](./backend-envs.yaml) instead.
+`--env-file` sources an additional dotenv-style file into the eforge child process (useful for Langfuse credentials or other global secrets). Per-profile secrets belong in the env-file mapping in [`profile-envs.yaml`](./profile-envs.yaml) instead.
+
+`profile-envs.yaml` accepts a list of env files per profile (sourced in order, later files win on key collision):
+
+```yaml
+profiles:
+  my-profile:
+    envFiles:
+      - env/primary.env
+      - env/secondary.env   # keys here override primary.env
+```
+
+A single-file shorthand is also accepted: `envFile: env/my.env`.
 
 ### Pi provider auth
 
-Pi-backed backends authenticate in one of two ways:
+Pi-backed profiles authenticate in one of two ways:
 
-- **API-key backends** (e.g. `pi-nemotron`, `pi-free`, `anthropic-api`) load creds from the env file declared in [`backend-envs.yaml`](./backend-envs.yaml) — see [`env/pi.env`](./env/pi.env) and [`env/anthropic.env`](./env/anthropic.env).
-- **OAuth backends** (e.g. `pi-codex`) rely on cached credentials at `~/.pi/agent/auth.json`. Run `pi login` once in your user environment before evaluating.
+- **API-key profiles** (e.g. `pi-nemotron`, `pi-free`) load creds from the env file declared in [`profile-envs.yaml`](./profile-envs.yaml) — see [`env/pi.env`](./env/pi.env).
+- **OAuth profiles** (e.g. `pi-codex`) rely on cached credentials at `~/.pi/agent/auth.json`. Run `pi login` once in your user environment before evaluating.
 
-In backend profiles, provider/model live under `agents.models.<class>` (usually `max`). There is no `pi.provider` or `pi.model` key — those are not part of eforge's Pi config schema.
+In profile files, provider/model live under `agents.models.<class>` (usually `max`). There is no `pi.provider` or `pi.model` key — those are not part of eforge's Pi config schema.
+
+### Mixed-runtime profile
+
+`mixed-opus-planner-pi-builder.yaml` exercises the `agentRuntimes` map: the planner/reviewer use claude-sdk + opus-4-7, while the builder uses pi + OpenRouter `qwen/qwen3-coder`. Run a smoke test comparing it with the single-runtime `opus-only` profile:
+
+```bash
+./run.sh --profile opus-only,mixed-opus-planner-pi-builder todo-api-errand-health-check
+```
+
+Requires `OPENROUTER_API_KEY` in the environment (or add an entry to `profile-envs.yaml`).
 
 ## How it works
 
 1. Each scenario copies a fixture to a temp directory in `/tmp/` and initializes a fresh git repo.
-2. The selected backend profile is copied into the workspace as `eforge/backends/<name>.yaml`, and `eforge/.active-backend` is written with the backend name — pinning step 1 of eforge's profile precedence.
+2. The selected profile is copied into the workspace as `eforge/profiles/<name>.yaml`, and `eforge/.active-profile` is written with the profile name — pinning step 1 of eforge's profile precedence.
 3. Runs `eforge run <prd> --auto --verbose --foreground --no-monitor` from the workspace.
 4. Events are recorded to a shared SQLite DB (`results/monitor.db`) via `EFORGE_MONITOR_DB`.
 5. Validation commands run against the workspace (type-check, tests, etc.).
 6. Results are aggregated into `results/<timestamp>/summary.json`.
 
-A monitor server starts from the eval repo root, providing a stable web UI for observing runs. Individual eforge runs use `--no-monitor` (foreground mode, writing directly to the shared DB). When multiple backends are requested for the same scenario, they execute concurrently; scenarios themselves run sequentially.
+A monitor server starts from the eval repo root, providing a stable web UI for observing runs. Individual eforge runs use `--no-monitor` (foreground mode, writing directly to the shared DB). When multiple profiles are requested for the same scenario, they execute concurrently; scenarios themselves run sequentially.
 
 ## Adding scenarios
 
@@ -91,33 +113,37 @@ Create the fixture under `fixtures/my-fixture/` with source code and the PRD fil
 
 Expectation checks are recorded on `result.json` under `expectations.checks`. `mode` and build-stage checks are informational (judgment calls). The `skip` check is a **gating** expectation: a mismatch fails the scenario. Scenarios that set `expect.mode` or declare non-empty `validate` steps implicitly expect `skip: false`; the synthesized check is tagged `implicit: true` on `result.json` so you can tell it apart from an explicit `expect.skip`.
 
-## Adding backends
+## Adding profiles
 
-Backends describe **how to build** — backend kind, models, optional env file. They are plain eforge [backend profile](../eforge/packages/engine/src/config.ts) files living under [`eforge/backends/`](./eforge/backends/). Drop a new file in that directory:
+Profiles describe **how to build** — harness, models, optional env file. They are plain eforge profile files living under [`eforge/profiles/`](./eforge/profiles/). Drop a new file in that directory:
 
 ```yaml
-# eforge/backends/my-backend.yaml
-backend: pi                       # or: claude-sdk
+# eforge/profiles/my-profile.yaml
+agentRuntimes:
+  default:
+    harness: pi               # or: claude-sdk
+defaultAgentRuntime: default
 agents:
   models:
     max:
-      provider: openrouter        # provider keys are backend-specific
+      provider: openrouter    # provider keys are harness-specific
       id: some-model-id
 ```
 
-The filename (minus `.yaml`) becomes the backend name and is used as the `<scenario-id>--<backend>` suffix on expanded scenario IDs. Backends of the same base scenario auto-group for side-by-side comparison — no extra field required.
+The filename (minus `.yaml`) becomes the profile name and is used as the `<scenario-id>--<profile>` suffix on expanded scenario IDs. Profiles of the same base scenario auto-group for side-by-side comparison — no extra field required.
 
-If the backend needs an env file (for API keys, etc.), add an entry to [`backend-envs.yaml`](./backend-envs.yaml):
+If the profile needs an env file (for API keys, etc.), add an entry to [`profile-envs.yaml`](./profile-envs.yaml):
 
 ```yaml
-backends:
-  my-backend:
-    envFile: env/my.env
+profiles:
+  my-profile:
+    envFiles:
+      - env/my.env
 ```
 
-Backends without an entry in `backend-envs.yaml` run without a custom env file (OAuth backends like `pi-codex` fall into this bucket — they rely on cached credentials).
+Profiles without an entry in `profile-envs.yaml` run without a custom env file (OAuth profiles like `pi-codex` fall into this bucket — they rely on cached credentials).
 
-Because backend profiles are native eforge format, you can also copy one from your own `~/.config/eforge/backends/` into `eval/eforge/backends/` to measure it in the eval harness.
+Because profile files are native eforge format, you can also copy one from your own `~/.config/eforge/profiles/` into `eval/eforge/profiles/` to measure it in the eval harness.
 
 ## Results
 
@@ -126,10 +152,10 @@ Results are stored in `results/<timestamp>/` (gitignored). Only the last 50 runs
 Per run:
 - `summary.json` — aggregate metrics across all scenarios
 - `analysis.json` — observations/warnings produced by `lib/analyze.ts`
-- `comparison.json` — side-by-side backend comparison (written when a scenario ran with multiple backends)
+- `comparison.json` — side-by-side profile comparison (written when a scenario ran with multiple profiles)
 
-Per scenario (`<timestamp>/<scenario-id>--<backend>/`):
-- `result.json` — metrics, validation results, expectations, and the backend profile used
+Per scenario (`<timestamp>/<scenario-id>--<profile>/`):
+- `result.json` — metrics, validation results, expectations, and the profile used
 - `eforge.log` — full eforge output
 - `orchestration.yaml` — preserved plan metadata
 - `validate-*.log` — per-validation-command output (one file per `validate:` step)

@@ -1,8 +1,8 @@
 #!/usr/bin/env tsx
-// Side-by-side backend comparison engine for eval runs.
+// Side-by-side profile comparison engine for eval runs.
 // Usage: npx tsx lib/compare.ts <run-dir>
 //
-// Groups scenarios by base scenario ID, compares backends across eight
+// Groups scenarios by base scenario ID, compares profiles across eight
 // dimensions, writes comparison.json and prints a human-readable table.
 
 import { readFileSync, writeFileSync, readdirSync, existsSync } from 'fs';
@@ -14,44 +14,44 @@ import {
 
 // --- Comparison types ---
 
-interface BackendValue<T> {
-  backend: string;
+interface ProfileValue<T> {
+  profile: string;
   value: T;
 }
 
 interface PassFailComparison {
-  ranked: BackendValue<{ passed: boolean; eforgeExitCode: number; validationPassed: boolean; expectationsPassed: boolean }>[];
+  ranked: ProfileValue<{ passed: boolean; eforgeExitCode: number; validationPassed: boolean; expectationsPassed: boolean }>[];
   allPassed: boolean;
 }
 
 interface CostComparison {
-  ranked: BackendValue<number>[];
+  ranked: ProfileValue<number>[];
   noData: string[];
-  bestBackend: string;
-  worstBackend: string;
+  bestProfile: string;
+  worstProfile: string;
   absoluteDelta: number;
   ratio?: number;
 }
 
 interface TokenComparison {
-  ranked: BackendValue<{ input: number; output: number; total: number; cacheRead: number }>[];
+  ranked: ProfileValue<{ input: number; output: number; total: number; cacheRead: number }>[];
   noData: string[];
-  bestBackend: string;
-  worstBackend: string;
+  bestProfile: string;
+  worstProfile: string;
 }
 
 interface DurationComparison {
-  ranked: BackendValue<number>[];
-  bestBackend: string;
-  worstBackend: string;
+  ranked: ProfileValue<number>[];
+  bestProfile: string;
+  worstProfile: string;
   absoluteDelta: number;
 }
 
 interface CacheEfficiencyComparison {
-  ranked: BackendValue<{ cacheRead: number; inputTokens: number; hitRate: number | null }>[];
+  ranked: ProfileValue<{ cacheRead: number; inputTokens: number; hitRate: number | null }>[];
   noData: string[];
-  bestBackend: string;
-  worstBackend: string;
+  bestProfile: string;
+  worstProfile: string;
 }
 
 interface AgentBreakdownEntry {
@@ -63,15 +63,15 @@ interface AgentBreakdownEntry {
 }
 
 interface AgentBreakdownComparison {
-  backends: BackendValue<AgentBreakdownEntry[] | 'no data'>[];
+  profiles: ProfileValue<AgentBreakdownEntry[] | 'no data'>[];
 }
 
 interface ReviewQualityComparison {
-  backends: BackendValue<{ issueCount: number; accepted: number; rejected: number; bySeverity: Record<string, number> } | 'no data'>[];
+  profiles: ProfileValue<{ issueCount: number; accepted: number; rejected: number; bySeverity: Record<string, number> } | 'no data'>[];
 }
 
 interface ToolUsageComparison {
-  backends: BackendValue<Record<string, Record<string, number>> | 'no data'>[];
+  profiles: ProfileValue<Record<string, Record<string, number>> | 'no data'>[];
 }
 
 interface ComparisonDimensions {
@@ -89,7 +89,7 @@ interface ComparisonGroup {
   groupId: string;
   fixture: string;
   prd: string;
-  backends: string[];
+  profiles: string[];
   dimensions: ComparisonDimensions;
 }
 
@@ -99,26 +99,23 @@ interface ComparisonReport {
   groups: ComparisonGroup[];
 }
 
-// --- Backend entry used internally ---
+// --- Profile entry used internally ---
 
-interface BackendEntry {
+interface ProfileEntry {
   label: string;
   result: ScenarioResult;
 }
 
 // --- Grouping ---
 
-// Support reading both new (`backend`) and legacy (`variant`) result.json files
-// so baseline comparisons against old runs keep working after the rename.
 function resultLabel(result: ScenarioResult, scenarioId: string, separatorIdx: number): string {
-  const legacy = (result as unknown as { variant?: { name?: string } }).variant;
-  return result.backend?.name ?? legacy?.name ?? scenarioId.slice(separatorIdx + 2);
+  return result.profile?.name ?? scenarioId.slice(separatorIdx + 2);
 }
 
 function groupByScenario(
   runDir: string,
-): Map<string, { fixture: string; prd: string; backends: BackendEntry[] }> {
-  const groups = new Map<string, { fixture: string; prd: string; backends: BackendEntry[] }>();
+): Map<string, { fixture: string; prd: string; profiles: ProfileEntry[] }> {
+  const groups = new Map<string, { fixture: string; prd: string; profiles: ProfileEntry[] }>();
 
   if (!existsSync(runDir)) return groups;
 
@@ -136,21 +133,21 @@ function groupByScenario(
     }
 
     const scenarioId = result.scenario;
-    // Derive the base scenario ID and backend label from the expanded ID
+    // Derive the base scenario ID and profile label from the expanded ID
     const separatorIdx = scenarioId.indexOf('--');
-    if (separatorIdx === -1) continue; // no backend suffix — skip
+    if (separatorIdx === -1) continue; // no profile suffix — skip
     const baseId = scenarioId.slice(0, separatorIdx);
     const label = resultLabel(result, scenarioId, separatorIdx);
 
     if (!groups.has(baseId)) {
-      groups.set(baseId, { fixture: '', prd: '', backends: [] });
+      groups.set(baseId, { fixture: '', prd: '', profiles: [] });
     }
-    groups.get(baseId)!.backends.push({ label, result });
+    groups.get(baseId)!.profiles.push({ label, result });
   }
 
-  // Remove groups with fewer than 2 backends
+  // Remove groups with fewer than 2 profiles
   for (const [key, group] of groups) {
-    if (group.backends.length < 2) {
+    if (group.profiles.length < 2) {
       groups.delete(key);
     }
   }
@@ -160,23 +157,23 @@ function groupByScenario(
 
 // --- Helpers ---
 
-/** Filter to backends that have metrics data; returns the full list as fallback. */
-function backendsWithMetrics(backends: BackendEntry[]): { source: BackendEntry[]; noData: string[] } {
-  const withData = backends.filter((v) => v.result.metrics != null);
-  const noData = backends.filter((v) => v.result.metrics == null).map((v) => v.label);
-  return { source: withData.length > 0 ? withData : backends, noData };
+/** Filter to profiles that have metrics data; returns the full list as fallback. */
+function profilesWithMetrics(profiles: ProfileEntry[]): { source: ProfileEntry[]; noData: string[] } {
+  const withData = profiles.filter((v) => v.result.metrics != null);
+  const noData = profiles.filter((v) => v.result.metrics == null).map((v) => v.label);
+  return { source: withData.length > 0 ? withData : profiles, noData };
 }
 
 // --- Dimension comparators ---
 
-function comparePassFail(backends: BackendEntry[]): PassFailComparison {
-  const ranked = backends.map((v) => {
+function comparePassFail(profiles: ProfileEntry[]): PassFailComparison {
+  const ranked = profiles.map((v) => {
     const eforgeOk = v.result.eforgeExitCode === 0;
     const validationPassed = Object.values(v.result.validation || {}).every((val) => val.passed);
     // Expectations are informational, not pass/fail gates
     const expectationsPassed = !v.result.expectations || v.result.expectations.passed;
     return {
-      backend: v.label,
+      profile: v.label,
       value: {
         passed: eforgeOk && validationPassed,
         eforgeExitCode: v.result.eforgeExitCode,
@@ -194,14 +191,14 @@ function comparePassFail(backends: BackendEntry[]): PassFailComparison {
   };
 }
 
-function compareCost(backends: BackendEntry[]): CostComparison {
-  // Only include backends that have metrics data; backends without metrics
+function compareCost(profiles: ProfileEntry[]): CostComparison {
+  // Only include profiles that have metrics data; profiles without metrics
   // (e.g. eforge failed before producing monitor data) are excluded from ranking
   // so they don't appear as "$0 cheapest".
-  const { source, noData } = backendsWithMetrics(backends);
+  const { source, noData } = profilesWithMetrics(profiles);
 
   const values = source.map((v) => ({
-    backend: v.label,
+    profile: v.label,
     value: v.result.metrics?.costUsd ?? 0,
   }));
 
@@ -213,8 +210,8 @@ function compareCost(backends: BackendEntry[]): CostComparison {
   const result: CostComparison = {
     ranked,
     noData,
-    bestBackend: best.backend,
-    worstBackend: worst.backend,
+    bestProfile: best.profile,
+    worstProfile: worst.profile,
     absoluteDelta,
   };
 
@@ -225,13 +222,13 @@ function compareCost(backends: BackendEntry[]): CostComparison {
   return result;
 }
 
-function compareTokens(backends: BackendEntry[]): TokenComparison {
-  const { source, noData } = backendsWithMetrics(backends);
+function compareTokens(profiles: ProfileEntry[]): TokenComparison {
+  const { source, noData } = profilesWithMetrics(profiles);
 
   const values = source.map((v) => {
     const tokens = v.result.metrics?.tokens;
     return {
-      backend: v.label,
+      profile: v.label,
       value: {
         input: tokens?.input ?? 0,
         output: tokens?.output ?? 0,
@@ -246,14 +243,14 @@ function compareTokens(backends: BackendEntry[]): TokenComparison {
   return {
     ranked,
     noData,
-    bestBackend: ranked[0].backend,
-    worstBackend: ranked[ranked.length - 1].backend,
+    bestProfile: ranked[0].profile,
+    worstProfile: ranked[ranked.length - 1].profile,
   };
 }
 
-function compareDuration(backends: BackendEntry[]): DurationComparison {
-  const values = backends.map((v) => ({
-    backend: v.label,
+function compareDuration(profiles: ProfileEntry[]): DurationComparison {
+  const values = profiles.map((v) => ({
+    profile: v.label,
     value: v.result.durationSeconds,
   }));
 
@@ -263,14 +260,14 @@ function compareDuration(backends: BackendEntry[]): DurationComparison {
 
   return {
     ranked,
-    bestBackend: best.backend,
-    worstBackend: worst.backend,
+    bestProfile: best.profile,
+    worstProfile: worst.profile,
     absoluteDelta: worst.value - best.value,
   };
 }
 
-function compareCacheEfficiency(backends: BackendEntry[]): CacheEfficiencyComparison {
-  const { source, noData } = backendsWithMetrics(backends);
+function compareCacheEfficiency(profiles: ProfileEntry[]): CacheEfficiencyComparison {
+  const { source, noData } = profilesWithMetrics(profiles);
 
   const values = source.map((v) => {
     const tokens = v.result.metrics?.tokens;
@@ -278,7 +275,7 @@ function compareCacheEfficiency(backends: BackendEntry[]): CacheEfficiencyCompar
     const cacheRead = tokens?.cacheRead ?? 0;
     const hitRate = inputTokens > 0 ? cacheRead / inputTokens : null;
     return {
-      backend: v.label,
+      profile: v.label,
       value: { cacheRead, inputTokens, hitRate },
     };
   });
@@ -293,16 +290,16 @@ function compareCacheEfficiency(backends: BackendEntry[]): CacheEfficiencyCompar
   return {
     ranked,
     noData,
-    bestBackend: ranked[0].backend,
-    worstBackend: ranked[ranked.length - 1].backend,
+    bestProfile: ranked[0].profile,
+    worstProfile: ranked[ranked.length - 1].profile,
   };
 }
 
-function compareAgentBreakdown(backends: BackendEntry[]): AgentBreakdownComparison {
+function compareAgentBreakdown(profiles: ProfileEntry[]): AgentBreakdownComparison {
   return {
-    backends: backends.map((v) => {
+    profiles: profiles.map((v) => {
       if (!v.result.metrics?.agents) {
-        return { backend: v.label, value: 'no data' as const };
+        return { profile: v.label, value: 'no data' as const };
       }
       const agents: AgentBreakdownEntry[] = Object.entries(v.result.metrics.agents).map(
         ([agent, agg]: [string, AgentAggregate]) => ({
@@ -314,20 +311,20 @@ function compareAgentBreakdown(backends: BackendEntry[]): AgentBreakdownComparis
         }),
       );
       agents.sort((a, b) => b.costUsd - a.costUsd);
-      return { backend: v.label, value: agents };
+      return { profile: v.label, value: agents };
     }),
   };
 }
 
-function compareReviewQuality(backends: BackendEntry[]): ReviewQualityComparison {
+function compareReviewQuality(profiles: ProfileEntry[]): ReviewQualityComparison {
   return {
-    backends: backends.map((v) => {
+    profiles: profiles.map((v) => {
       if (!v.result.metrics?.review) {
-        return { backend: v.label, value: 'no data' as const };
+        return { profile: v.label, value: 'no data' as const };
       }
       const r = v.result.metrics.review;
       return {
-        backend: v.label,
+        profile: v.label,
         value: {
           issueCount: r.issueCount,
           accepted: r.accepted,
@@ -339,13 +336,13 @@ function compareReviewQuality(backends: BackendEntry[]): ReviewQualityComparison
   };
 }
 
-function compareToolUsage(backends: BackendEntry[]): ToolUsageComparison {
+function compareToolUsage(profiles: ProfileEntry[]): ToolUsageComparison {
   return {
-    backends: backends.map((v) => {
+    profiles: profiles.map((v) => {
       if (!v.result.metrics?.toolUsage) {
-        return { backend: v.label, value: 'no data' as const };
+        return { profile: v.label, value: 'no data' as const };
       }
-      return { backend: v.label, value: v.result.metrics.toolUsage };
+      return { profile: v.label, value: v.result.metrics.toolUsage };
     }),
   };
 }
@@ -354,26 +351,26 @@ function compareToolUsage(backends: BackendEntry[]): ToolUsageComparison {
 
 function buildComparisonReport(
   runTimestamp: string,
-  groups: Map<string, { fixture: string; prd: string; backends: BackendEntry[] }>,
+  groups: Map<string, { fixture: string; prd: string; profiles: ProfileEntry[] }>,
 ): ComparisonReport {
   const comparisonGroups: ComparisonGroup[] = [];
 
   for (const [groupId, group] of groups) {
-    const { backends } = group;
+    const { profiles } = group;
     comparisonGroups.push({
       groupId,
       fixture: group.fixture,
       prd: group.prd,
-      backends: backends.map((v) => v.label),
+      profiles: profiles.map((v) => v.label),
       dimensions: {
-        passFail: comparePassFail(backends),
-        cost: compareCost(backends),
-        tokens: compareTokens(backends),
-        duration: compareDuration(backends),
-        cacheEfficiency: compareCacheEfficiency(backends),
-        agentBreakdown: compareAgentBreakdown(backends),
-        reviewQuality: compareReviewQuality(backends),
-        toolUsage: compareToolUsage(backends),
+        passFail: comparePassFail(profiles),
+        cost: compareCost(profiles),
+        tokens: compareTokens(profiles),
+        duration: compareDuration(profiles),
+        cacheEfficiency: compareCacheEfficiency(profiles),
+        agentBreakdown: compareAgentBreakdown(profiles),
+        reviewQuality: compareReviewQuality(profiles),
+        toolUsage: compareToolUsage(profiles),
       },
     });
   }
@@ -399,29 +396,29 @@ function printComparisonTable(report: ComparisonReport): void {
   const line = '─'.repeat(100);
 
   console.log('');
-  console.log(`${BOLD}━━━ Backend Comparison ━━━${RESET}`);
+  console.log(`${BOLD}━━━ Profile Comparison ━━━${RESET}`);
   console.log(`${DIM}${report.groupCount} comparison group(s)${RESET}`);
   console.log('');
 
   for (const group of report.groups) {
     console.log(`${BOLD}${CYAN}${group.groupId}${RESET}`);
-    console.log(`${DIM}Backends: ${group.backends.join(', ')}${RESET}`);
+    console.log(`${DIM}Profiles: ${group.profiles.join(', ')}${RESET}`);
     console.log(line);
 
     // Pass/Fail
     console.log(`${BOLD}  Pass/Fail:${RESET}`);
     for (const entry of group.dimensions.passFail.ranked) {
       const icon = entry.value.passed ? `${GREEN}✓ PASS${RESET}` : `${RED}✗ FAIL${RESET}`;
-      console.log(`    ${pad(entry.backend, 30)} ${icon}`);
+      console.log(`    ${pad(entry.profile, 30)} ${icon}`);
     }
 
     // Cost
     console.log(`${BOLD}  Cost:${RESET}`);
     for (const entry of group.dimensions.cost.ranked) {
-      const isBest = entry.backend === group.dimensions.cost.bestBackend;
+      const isBest = entry.profile === group.dimensions.cost.bestProfile;
       const color = isBest ? GREEN : '';
       const reset = isBest ? RESET : '';
-      console.log(`    ${pad(entry.backend, 30)} ${color}$${entry.value.toFixed(2)}${reset}`);
+      console.log(`    ${pad(entry.profile, 30)} ${color}$${entry.value.toFixed(2)}${reset}`);
     }
     if (group.dimensions.cost.absoluteDelta > 0) {
       const ratioStr = group.dimensions.cost.ratio != null
@@ -434,10 +431,10 @@ function printComparisonTable(report: ComparisonReport): void {
     console.log(`${BOLD}  Tokens:${RESET}`);
     for (const entry of group.dimensions.tokens.ranked) {
       const t = entry.value;
-      const isBest = entry.backend === group.dimensions.tokens.bestBackend;
+      const isBest = entry.profile === group.dimensions.tokens.bestProfile;
       const color = isBest ? GREEN : '';
       const reset = isBest ? RESET : '';
-      console.log(`    ${pad(entry.backend, 30)} ${color}${Math.round(t.total / 1000)}k total${reset} (${Math.round(t.input / 1000)}k in, ${Math.round(t.output / 1000)}k out)`);
+      console.log(`    ${pad(entry.profile, 30)} ${color}${Math.round(t.total / 1000)}k total${reset} (${Math.round(t.input / 1000)}k in, ${Math.round(t.output / 1000)}k out)`);
     }
 
     // Duration
@@ -445,10 +442,10 @@ function printComparisonTable(report: ComparisonReport): void {
     for (const entry of group.dimensions.duration.ranked) {
       const mins = Math.floor(entry.value / 60);
       const secs = Math.round(entry.value % 60);
-      const isBest = entry.backend === group.dimensions.duration.bestBackend;
+      const isBest = entry.profile === group.dimensions.duration.bestProfile;
       const color = isBest ? GREEN : '';
       const reset = isBest ? RESET : '';
-      console.log(`    ${pad(entry.backend, 30)} ${color}${mins}m ${secs}s${reset}`);
+      console.log(`    ${pad(entry.profile, 30)} ${color}${mins}m ${secs}s${reset}`);
     }
     if (group.dimensions.duration.absoluteDelta > 0) {
       const deltaMins = Math.floor(group.dimensions.duration.absoluteDelta / 60);
@@ -461,20 +458,20 @@ function printComparisonTable(report: ComparisonReport): void {
     for (const entry of group.dimensions.cacheEfficiency.ranked) {
       const v = entry.value;
       const hitStr = v.hitRate != null ? `${(v.hitRate * 100).toFixed(0)}%` : 'n/a';
-      const isBest = entry.backend === group.dimensions.cacheEfficiency.bestBackend;
+      const isBest = entry.profile === group.dimensions.cacheEfficiency.bestProfile;
       const color = isBest ? GREEN : '';
       const reset = isBest ? RESET : '';
-      console.log(`    ${pad(entry.backend, 30)} ${color}${hitStr}${reset}`);
+      console.log(`    ${pad(entry.profile, 30)} ${color}${hitStr}${reset}`);
     }
 
     // Review Quality
     console.log(`${BOLD}  Review Quality:${RESET}`);
-    for (const entry of group.dimensions.reviewQuality.backends) {
+    for (const entry of group.dimensions.reviewQuality.profiles) {
       if (entry.value === 'no data') {
-        console.log(`    ${pad(entry.backend, 30)} ${DIM}no data${RESET}`);
+        console.log(`    ${pad(entry.profile, 30)} ${DIM}no data${RESET}`);
       } else {
         const v = entry.value;
-        console.log(`    ${pad(entry.backend, 30)} ${v.issueCount} issues, ${v.accepted} accepted, ${v.rejected} rejected`);
+        console.log(`    ${pad(entry.profile, 30)} ${v.issueCount} issues, ${v.accepted} accepted, ${v.rejected} rejected`);
       }
     }
 
@@ -495,15 +492,15 @@ function main(): void {
   const groups = groupByScenario(runDir);
 
   if (groups.size === 0) {
-    // No groups with ≥2 backends — exit silently
+    // No groups with ≥2 profiles — exit silently
     return;
   }
 
   // Determine run timestamp from first result or directory name
   let runTimestamp = '';
   for (const group of groups.values()) {
-    if (group.backends.length > 0) {
-      runTimestamp = group.backends[0].result.timestamp;
+    if (group.profiles.length > 0) {
+      runTimestamp = group.profiles[0].result.timestamp;
       break;
     }
   }
