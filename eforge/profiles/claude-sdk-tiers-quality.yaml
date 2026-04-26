@@ -1,0 +1,23 @@
+# Quality-tilted via tiers: review and evaluation tiers run at xhigh effort,
+# while planning and implementation stay at the global `high` baseline.
+# Isolates the cost/quality impact of harder-thinking review/eval without
+# changing the build path.
+#
+# Pair with `claude-sdk-4-7.yaml` (uniform high) as the controlled baseline:
+#   --profile claude-sdk-4-7,claude-sdk-tiers-quality
+agentRuntimes:
+  default:
+    harness: claude-sdk
+defaultAgentRuntime: default
+agents:
+  effort: high
+  models:
+    max:
+      id: claude-opus-4-7
+    balanced:
+      id: claude-sonnet-4-6
+  tiers:
+    review:
+      effort: xhigh
+    evaluation:
+      effort: xhigh

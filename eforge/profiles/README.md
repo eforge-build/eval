@@ -88,6 +88,22 @@ Smoke-test command:
 
 Single-runtime profile pinned to claude-sdk + `claude-opus-4-7` with `effort: high`. Used as a fast smoke-test baseline alongside mixed-runtime profiles.
 
+## Tier-layer profiles
+
+These profiles exercise the `agents.tiers.<tier>` layer that sits between global agent settings and per-role overrides. The four tiers are `planning`, `implementation`, `review`, and `evaluation`; built-in defaults are `effort=high, modelClass=max` for planning/review/evaluation and `effort=medium, modelClass=balanced` for implementation.
+
+### `claude-sdk-tiers-quality.yaml`
+
+Quality-tilted variant of `claude-sdk-4-7.yaml`: review and evaluation tiers run at `effort: xhigh` while planning and implementation stay at the global `high` baseline. Isolates the effect of harder-thinking review/eval without changing the build path.
+
+```bash
+./run.sh --profile claude-sdk-4-7,claude-sdk-tiers-quality <scenario>
+```
+
+### `claude-sdk-tiers-demo.yaml`
+
+Demonstration profile with all four tiers populated. Values match the built-in tier defaults, so this profile resolves identically to a no-tiers profile — its purpose is to show the shape and inline the role-to-tier membership so per-tier knobs can be edited without re-checking the source. Not intended as a measurement lane on its own.
+
 ## Other profiles
 
 `claude-sdk-balanced.yaml` and the `pi-{codex,free,gemma4,glm,kimi-k-2-6,local-qwen-3-6-35B-A3B,nemotron}.yaml` profiles are out of the controlled-comparison pairs above. Use them for separate experiments.
