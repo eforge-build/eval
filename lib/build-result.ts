@@ -6,6 +6,8 @@ process.removeAllListeners('warning');
 import { writeFileSync, existsSync } from 'fs';
 import { DatabaseSync } from 'node:sqlite';
 import { type AgentAggregate, type ModelAggregate, type PhaseTimestamps, type ReviewIssueDetail, type EvaluationVerdict, type ScenarioMetrics, type ScenarioResult } from './types.js';
+// Note: ScenarioResult has an optional `quality?: QualityBlock` field that is populated
+// post-build by `score-quality.ts` via `mergeQualityIntoResult()`, not here.
 
 export interface BuildResultOpts {
   outputFile: string;

@@ -22,6 +22,7 @@ import { loadScenarios, loadProfiles, expandScenarioProfiles, deriveGroupId } fr
 import { buildResult, type BuildResultOpts } from './build-result.js';
 import { checkExpectations, type ExpectConfig } from './check-expectations.js';
 import type { ExpandedScenario, ExpectationCheck, ScenarioResult } from './types.js';
+import { scoreAbsolute, mergeQualityIntoResult, loadJudgeConfig } from './score-quality.js';
 
 // --- Constants ---
 
@@ -51,6 +52,7 @@ interface RunArgs {
   envFile: string;
   dryRun: boolean;
   all: boolean;
+  scoreQuality: boolean;
 }
 
 function parseArgs(argv: string[]): RunArgs {
@@ -62,6 +64,7 @@ function parseArgs(argv: string[]): RunArgs {
     envFile: '',
     dryRun: false,
     all: false,
+    scoreQuality: false,
   };
 
   const rest = argv.slice(2); // skip node + script path
@@ -73,6 +76,10 @@ function parseArgs(argv: string[]): RunArgs {
         process.exit(0);
       case '--dry-run':
         args.dryRun = true;
+        i++;
+        break;
+      case '--score-quality':
+        args.scoreQuality = true;
         i++;
         break;
       case '--env-file':
@@ -129,6 +136,7 @@ Options:
   --env-file FILE        Source environment variables (e.g. Langfuse credentials)
   --repeat N             Run each scenario N times (default: 1)
   --compare <timestamp>  Compare results against a previous run
+  --score-quality        Run LLM-as-judge quality scoring (absolute per run, pairwise on compare)
   --cleanup              Remove all eval results
   --help                 Show this help
 
@@ -439,6 +447,7 @@ interface ScenarioRunOpts {
   dryRun: boolean;
   globalEnvVars: Record<string, string>;
   parallel: boolean;
+  scoreQuality: boolean;
 }
 
 interface ScenarioRunResult {
@@ -450,7 +459,7 @@ interface ScenarioRunResult {
 }
 
 async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
-  const { expanded, scenarioDir, eforgeBin, eforgeVersion, eforgeCommit, eforgeDirty, monitorDbPath, dryRun, globalEnvVars, parallel } = opts;
+  const { expanded, scenarioDir, eforgeBin, eforgeVersion, eforgeCommit, eforgeDirty, monitorDbPath, dryRun, globalEnvVars, parallel, scoreQuality } = opts;
   const { scenario, profile } = expanded;
   const label = profile.name;
   const prefix = parallel ? `${DIM}[${label}]${RESET} ` : '';
@@ -587,6 +596,51 @@ async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
   log(`  Result: ${scenarioDir}/result.json`);
   log(`  Duration: ${mins}m ${secs}s`);
 
+  // Quality scoring (absolute): runs after expectations, before workspace cleanup
+  if (scoreQuality && !dryRun && eforgeExit === 0) {
+    try {
+      const qualityDir = join(scenarioDir, 'quality');
+      mkdirSync(qualityDir, { recursive: true });
+
+      // Resolve baseline commit (the initial fixture commit before eforge ran)
+      const baseline = execSync('git rev-list --max-parents=0 HEAD', {
+        cwd: workspace,
+        encoding: 'utf8',
+      }).trim();
+
+      // Capture diff since baseline
+      const diffPatch = execSync(`git diff ${baseline}..HEAD`, {
+        cwd: workspace,
+        encoding: 'utf8',
+        maxBuffer: 50 * 1024 * 1024,
+      });
+
+      writeFileSync(join(qualityDir, 'diff.patch'), diffPatch);
+      cpSync(join(workspace, scenario.prd), join(qualityDir, 'prd.md'));
+
+      const judgeConfig = loadJudgeConfig();
+      const prdText = readFileSync(join(qualityDir, 'prd.md'), 'utf8');
+      const validationForJudge: Record<string, { passed: boolean }> = Object.fromEntries(
+        Object.entries(validation).map(([k, v]) => [k, { passed: v.passed }]),
+      );
+
+      log('  Running quality scoring...');
+      const absolute = await scoreAbsolute({
+        prd: prdText,
+        diffPatch,
+        validation: validationForJudge,
+        judgeConfig,
+      });
+
+      mergeQualityIntoResult(join(scenarioDir, 'result.json'), { absolute });
+      log(
+        `  Quality (absolute): prd=${absolute.dimensions.prdAdherence.score} code=${absolute.dimensions.codeQuality.score} test=${absolute.dimensions.testQuality.score} disc=${absolute.dimensions.changeDiscipline.score} → ${absolute.overall.weighted.toFixed(2)}`,
+      );
+    } catch (err) {
+      log(`  ${RED}Quality scoring failed (non-fatal): ${err instanceof Error ? err.message : String(err)}${RESET}`);
+    }
+  }
+
   // Cleanup workspace
   cleanupWorkspace(workspace);
 
@@ -632,7 +686,7 @@ async function runScenarioWithRepeats(
     return runScenario(opts);
   }
 
-  const { expanded, scenarioDir, eforgeBin, eforgeVersion, eforgeCommit, eforgeDirty, monitorDbPath, dryRun, globalEnvVars, parallel } = opts;
+  const { expanded, scenarioDir, eforgeBin, eforgeVersion, eforgeCommit, eforgeDirty, monitorDbPath, dryRun, globalEnvVars, parallel, scoreQuality } = opts;
   let runPassed = 0;
 
   for (let i = 1; i <= repeatCount; i++) {
@@ -643,6 +697,7 @@ async function runScenarioWithRepeats(
     const result = await runScenario({
       ...opts,
       scenarioDir: repeatDir,
+      scoreQuality,
     });
 
     if (result.passed) runPassed++;
@@ -1134,6 +1189,7 @@ async function main(): Promise<void> {
           dryRun: args.dryRun,
           globalEnvVars,
           parallel: isParallel,
+          scoreQuality: args.scoreQuality,
         },
         args.repeatCount,
       );
@@ -1170,7 +1226,8 @@ async function main(): Promise<void> {
   console.log('');
   console.log('Running profile comparison...');
   try {
-    execSync(`npx tsx "${join(SCRIPT_DIR, 'lib', 'compare.ts')}" "${runDir}"`, {
+    const compareArgs = args.scoreQuality ? `"${runDir}" --score-quality` : `"${runDir}"`;
+    execSync(`npx tsx "${join(SCRIPT_DIR, 'lib', 'compare.ts')}" ${compareArgs}`, {
       cwd: SCRIPT_DIR,
       stdio: 'inherit',
     });

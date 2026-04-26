@@ -69,6 +69,52 @@ export interface ExpectationCheck {
   implicit?: boolean;
 }
 
+// --- Quality scoring types (LLM-as-judge) ---
+
+export interface QualityDimensionScore {
+  score: 1 | 2 | 3 | 4 | 5;
+  justification: string;
+}
+
+export interface AbsoluteScore {
+  judge: {
+    model: string;
+    version: string;
+  };
+  dimensions: {
+    prdAdherence: QualityDimensionScore;
+    codeQuality: QualityDimensionScore;
+    testQuality: QualityDimensionScore;
+    changeDiscipline: QualityDimensionScore;
+  };
+  overall: {
+    weighted: number;
+    weights: Record<string, number>;
+  };
+  inputs: {
+    diffBytes: number;
+    diffTruncated: boolean;
+  };
+}
+
+export interface PairwiseDimensionResult {
+  winner: 'a' | 'b' | 'tie';
+  justification: string;
+}
+
+export interface PairwiseScore {
+  perDimension: {
+    prdAdherence: PairwiseDimensionResult;
+    codeQuality: PairwiseDimensionResult;
+    testQuality: PairwiseDimensionResult;
+    changeDiscipline: PairwiseDimensionResult;
+  };
+}
+
+export interface QualityBlock {
+  absolute?: AbsoluteScore;
+}
+
 export interface ScenarioResult {
   scenario: string;
   profile?: { name: string; config: Record<string, unknown>; envFiles?: string[] };
@@ -87,6 +133,7 @@ export interface ScenarioResult {
     passRate?: number;
     perRun?: Array<{ run: number; passed: boolean; checks: ExpectationCheck[] }>;
   };
+  quality?: QualityBlock;
 }
 
 // --- Analysis output types (from analyze.ts) ---
