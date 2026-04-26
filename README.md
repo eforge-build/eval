@@ -27,6 +27,7 @@ pnpm install
 ./run.sh --profile claude-sdk-4-7 --all --repeat 3                              # Run each scenario 3 times, aggregate pass rate
 ./run.sh --profile claude-sdk-4-7 --all --compare 2026-04-15T12-00-00           # Diff against a prior run
 ./run.sh --profile claude-sdk-4-7 --dry-run todo-api-errand-health-check        # Set up workspace only, skip eforge
+./run.sh --profile claude-sdk-4-7,pi-anthropic-4-7 --score-quality --all        # LLM-as-judge quality scoring (absolute + pairwise)
 ./run.sh --cleanup                                                      # Remove all results
 ./open-monitor.sh                                                       # Open monitor UI over the shared DB
 ```
@@ -155,10 +156,35 @@ Per run:
 - `comparison.json` — side-by-side profile comparison (written when a scenario ran with multiple profiles)
 
 Per scenario (`<timestamp>/<scenario-id>--<profile>/`):
-- `result.json` — metrics, validation results, expectations, and the profile used
+- `result.json` — metrics, validation results, expectations, and the profile used. With `--score-quality`, also contains a `quality.absolute` block (per-dimension scores + weighted overall).
 - `eforge.log` — full eforge output
 - `orchestration.yaml` — preserved plan metadata
 - `validate-*.log` — per-validation-command output (one file per `validate:` step)
 - `workspace-path.txt` — path to the temp workspace that was used (deleted after the run)
+- `quality/` (only with `--score-quality`) — `prd.md` and `diff.patch` snapshots taken before workspace cleanup, used by `compare.ts` to re-score pairwise without re-running eforge
 
 With `--repeat N > 1`, each scenario directory additionally contains `run-1/`, `run-2/`, … with their own `result.json`; the top-level `result.json` becomes an aggregate with `passRate` and per-run pass flags.
+
+## Quality scoring (LLM-as-judge)
+
+Opt-in with `--score-quality` to add an LLM-as-judge layer on top of the correctness/cost metrics:
+
+- **Absolute** (per scenario, inline) — graded on a 4-dimension rubric (PRD adherence, code quality, test quality, change discipline) with anchored 1–5 scales. Output lands in `result.json.quality.absolute`.
+- **Pairwise** (during `compare.ts`, for each scenario group with ≥2 profiles) — judges each profile pair per dimension and emits a winner/tie. A/B order is randomized per pair to mitigate position bias. Output lands in `comparison.json.groups[].dimensions.quality`.
+
+`compare.ts` auto-detects the dimension when any input `result.json` has a populated `quality.absolute` and adds it to the printed table — re-running `npx tsx lib/compare.ts <existing-results-dir> --score-quality` regenerates pairwise scores from `<scenario>/quality/{prd.md,diff.patch}` snapshots without re-running eforge.
+
+Configuration lives in `judge.yaml` at the eval root:
+
+```yaml
+model: claude-opus-4-7
+maxOutputTokens: 2048
+weights:
+  prdAdherence: 0.4
+  codeQuality: 0.25
+  testQuality: 0.25
+  changeDiscipline: 0.1   # weights must sum to 1.0
+maxDiffBytes: 80000        # diffs above this are truncated with a marker
+```
+
+Auth: judge calls go through `@anthropic-ai/claude-agent-sdk`, which inherits Claude Code's host auth (subscription if logged in) and falls back to `ANTHROPIC_API_KEY`. If neither is available, scoring fails with an error naming both. The judge runs with `allowedTools: []` — no file, shell, or MCP access — so it sees only the prompt + diff text passed in.

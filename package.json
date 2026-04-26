@@ -8,6 +8,7 @@
     "mcp-server": "npx tsx mcp-server/index.ts"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.119",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^3.25.76"
   },

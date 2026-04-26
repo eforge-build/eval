@@ -11,6 +11,8 @@ import {
   type ScenarioResult,
   type AgentAggregate,
 } from './types.js';
+import { scorePairwise, loadJudgeConfig, formatCostUsd } from './score-quality.js';
+import type { PairwiseScoreWithUsage } from './score-quality.js';
 
 // --- Comparison types ---
 
@@ -74,6 +76,53 @@ interface ToolUsageComparison {
   profiles: ProfileValue<Record<string, Record<string, number>> | 'no data'>[];
 }
 
+// --- Quality comparison types ---
+
+interface QualityAbsoluteEntry {
+  profile: string;
+  weighted: number;
+  dimensions: {
+    prdAdherence: number;
+    codeQuality: number;
+    testQuality: number;
+    changeDiscipline: number;
+  };
+}
+
+interface QualityAbsoluteSubBlock {
+  ranked: QualityAbsoluteEntry[];
+  bestProfile: string;
+  noData: string[];
+}
+
+interface PairwiseDimResult {
+  winner: string; // profile label or 'tie'
+  justification: string;
+}
+
+interface PairwiseEntry {
+  profileA: string;
+  profileB: string;
+  perDimension: {
+    prdAdherence: PairwiseDimResult;
+    codeQuality: PairwiseDimResult;
+    testQuality: PairwiseDimResult;
+    changeDiscipline: PairwiseDimResult;
+  };
+}
+
+interface QualityPairwiseSubBlock {
+  pairs: PairwiseEntry[];
+  summary: {
+    perDimension: Record<string, Record<string, number>>;
+  };
+}
+
+interface QualityComparison {
+  absolute?: QualityAbsoluteSubBlock;
+  pairwise?: QualityPairwiseSubBlock;
+}
+
 interface ComparisonDimensions {
   passFail: PassFailComparison;
   cost: CostComparison;
@@ -83,6 +132,7 @@ interface ComparisonDimensions {
   agentBreakdown: AgentBreakdownComparison;
   reviewQuality: ReviewQualityComparison;
   toolUsage: ToolUsageComparison;
+  quality?: QualityComparison;
 }
 
 interface ComparisonGroup {
@@ -104,6 +154,7 @@ interface ComparisonReport {
 interface ProfileEntry {
   label: string;
   result: ScenarioResult;
+  qualityDir?: string; // path to <scenarioDir>/quality/ if it exists
 }
 
 // --- Grouping ---
@@ -139,10 +190,14 @@ function groupByScenario(
     const baseId = scenarioId.slice(0, separatorIdx);
     const label = resultLabel(result, scenarioId, separatorIdx);
 
+    // Populate qualityDir if snapshot exists
+    const potentialQualityDir = join(runDir, entry.name, 'quality');
+    const qualityDir = existsSync(potentialQualityDir) ? potentialQualityDir : undefined;
+
     if (!groups.has(baseId)) {
       groups.set(baseId, { fixture: '', prd: '', profiles: [] });
     }
-    groups.get(baseId)!.profiles.push({ label, result });
+    groups.get(baseId)!.profiles.push({ label, result, qualityDir });
   }
 
   // Remove groups with fewer than 2 profiles
@@ -347,16 +402,189 @@ function compareToolUsage(profiles: ProfileEntry[]): ToolUsageComparison {
   };
 }
 
+// --- Quality comparison ---
+
+/** Generate all unique pairs from an array. */
+function* uniquePairs<T>(arr: T[]): Generator<[T, T]> {
+  for (let i = 0; i < arr.length; i++) {
+    for (let j = i + 1; j < arr.length; j++) {
+      yield [arr[i], arr[j]];
+    }
+  }
+}
+
+/** Accumulated pairwise usage for summary logging. */
+interface PairwiseUsageAccumulator {
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+async function compareQuality(
+  profiles: ProfileEntry[],
+  scoreQualityFlag: boolean,
+  usageAccumulator: PairwiseUsageAccumulator,
+): Promise<QualityComparison | undefined> {
+  const DIMENSIONS = ['prdAdherence', 'codeQuality', 'testQuality', 'changeDiscipline'] as const;
+  type Dim = typeof DIMENSIONS[number];
+
+  // Build absolute block from existing result.quality.absolute data
+  const withAbsolute = profiles.filter((p) => p.result.quality?.absolute != null);
+  const noData = profiles.filter((p) => p.result.quality?.absolute == null).map((p) => p.label);
+  const hasAbsolute = withAbsolute.length > 0;
+
+  // Auto-detect: include quality if any profile has absolute data OR --score-quality was set
+  if (!hasAbsolute && !scoreQualityFlag) {
+    return undefined;
+  }
+
+  let absoluteBlock: QualityAbsoluteSubBlock | undefined;
+  if (hasAbsolute) {
+    const entries: QualityAbsoluteEntry[] = withAbsolute.map((p) => {
+      const abs = p.result.quality!.absolute!;
+      return {
+        profile: p.label,
+        weighted: abs.overall.weighted,
+        dimensions: {
+          prdAdherence: abs.dimensions.prdAdherence.score,
+          codeQuality: abs.dimensions.codeQuality.score,
+          testQuality: abs.dimensions.testQuality.score,
+          changeDiscipline: abs.dimensions.changeDiscipline.score,
+        },
+      };
+    });
+    entries.sort((a, b) => b.weighted - a.weighted);
+    absoluteBlock = {
+      ranked: entries,
+      bestProfile: entries[0].profile,
+      noData,
+    };
+  }
+
+  // Pairwise: only run when --score-quality flag is set AND snapshot files exist
+  let pairwiseBlock: QualityPairwiseSubBlock | undefined;
+  if (scoreQualityFlag && profiles.length >= 2) {
+    const pairs: PairwiseEntry[] = [];
+    const summary: Record<Dim, Record<string, number>> = {
+      prdAdherence: {},
+      codeQuality: {},
+      testQuality: {},
+      changeDiscipline: {},
+    };
+
+    // Initialize win counters
+    for (const p of profiles) {
+      for (const dim of DIMENSIONS) {
+        summary[dim][p.label] = 0;
+      }
+    }
+    for (const dim of DIMENSIONS) {
+      summary[dim]['tie'] = 0;
+    }
+
+    let judgeConfig;
+    try {
+      judgeConfig = loadJudgeConfig();
+    } catch (err) {
+      console.error(`  Quality pairwise scoring skipped: could not load judge config: ${(err as Error).message}`);
+      judgeConfig = null;
+    }
+
+    if (judgeConfig) {
+      for (const [entryA, entryB] of uniquePairs(profiles)) {
+        // Both entries must have quality snapshots
+        if (!entryA.qualityDir || !entryB.qualityDir) continue;
+
+        const prdPathA = join(entryA.qualityDir, 'prd.md');
+        const diffPathA = join(entryA.qualityDir, 'diff.patch');
+        const diffPathB = join(entryB.qualityDir, 'diff.patch');
+
+        if (!existsSync(prdPathA) || !existsSync(diffPathA) || !existsSync(diffPathB)) continue;
+
+        try {
+          const prd = readFileSync(prdPathA, 'utf8');
+          const diffA = readFileSync(diffPathA, 'utf8');
+          const diffB = readFileSync(diffPathB, 'utf8');
+
+          const result: PairwiseScoreWithUsage = await scorePairwise({
+            prd,
+            diffA,
+            diffB,
+            profileA: entryA.label,
+            profileB: entryB.label,
+            judgeConfig,
+          });
+
+          // Accumulate usage for summary logging
+          usageAccumulator.calls += 1;
+          usageAccumulator.inputTokens += result._usage.inputTokens;
+          usageAccumulator.outputTokens += result._usage.outputTokens;
+
+          // Denormalize winners to profile labels
+          const pairEntry: PairwiseEntry = {
+            profileA: entryA.label,
+            profileB: entryB.label,
+            perDimension: {} as PairwiseEntry['perDimension'],
+          };
+
+          for (const dim of DIMENSIONS) {
+            const dimResult = result.perDimension[dim];
+            const winnerLabel =
+              dimResult.winner === 'a'
+                ? entryA.label
+                : dimResult.winner === 'b'
+                  ? entryB.label
+                  : 'tie';
+
+            (pairEntry.perDimension as Record<string, PairwiseDimResult>)[dim] = {
+              winner: winnerLabel,
+              justification: dimResult.justification,
+            };
+
+            // Update summary counters
+            if (summary[dim][winnerLabel] !== undefined) {
+              summary[dim][winnerLabel]++;
+            } else {
+              summary[dim][winnerLabel] = 1;
+            }
+          }
+
+          pairs.push(pairEntry);
+        } catch (err) {
+          console.error(`  Pairwise scoring failed for ${entryA.label} vs ${entryB.label}: ${(err as Error).message}`);
+        }
+      }
+
+      if (pairs.length > 0) {
+        pairwiseBlock = {
+          pairs,
+          summary: { perDimension: summary as Record<string, Record<string, number>> },
+        };
+      }
+    }
+  }
+
+  if (!absoluteBlock && !pairwiseBlock) return undefined;
+
+  return {
+    ...(absoluteBlock && { absolute: absoluteBlock }),
+    ...(pairwiseBlock && { pairwise: pairwiseBlock }),
+  };
+}
+
 // --- Report builder ---
 
-function buildComparisonReport(
+async function buildComparisonReport(
   runTimestamp: string,
   groups: Map<string, { fixture: string; prd: string; profiles: ProfileEntry[] }>,
-): ComparisonReport {
+  scoreQualityFlag: boolean,
+  pairwiseUsage: PairwiseUsageAccumulator,
+): Promise<ComparisonReport> {
   const comparisonGroups: ComparisonGroup[] = [];
 
   for (const [groupId, group] of groups) {
     const { profiles } = group;
+    const quality = await compareQuality(profiles, scoreQualityFlag, pairwiseUsage);
     comparisonGroups.push({
       groupId,
       fixture: group.fixture,
@@ -371,6 +599,7 @@ function buildComparisonReport(
         agentBreakdown: compareAgentBreakdown(profiles),
         reviewQuality: compareReviewQuality(profiles),
         toolUsage: compareToolUsage(profiles),
+        ...(quality && { quality }),
       },
     });
   }
@@ -475,17 +704,70 @@ function printComparisonTable(report: ComparisonReport): void {
       }
     }
 
+    // Quality (LLM-as-judge)
+    if (group.dimensions.quality) {
+      const q = group.dimensions.quality;
+      console.log(`${BOLD}  Quality (LLM-as-judge):${RESET}`);
+
+      if (q.absolute) {
+        console.log(`    ${DIM}Absolute scores (weighted overall):${RESET}`);
+        for (const entry of q.absolute.ranked) {
+          const isBest = entry.profile === q.absolute.bestProfile;
+          const color = isBest ? GREEN : '';
+          const reset = isBest ? RESET : '';
+          console.log(
+            `    ${pad(entry.profile, 30)} ${color}${entry.weighted.toFixed(2)}${reset}` +
+            ` (prd=${entry.dimensions.prdAdherence} code=${entry.dimensions.codeQuality}` +
+            ` test=${entry.dimensions.testQuality} disc=${entry.dimensions.changeDiscipline})`,
+          );
+        }
+        if (q.absolute.noData.length > 0) {
+          console.log(`    ${DIM}No absolute data: ${q.absolute.noData.join(', ')}${RESET}`);
+        }
+      }
+
+      if (q.pairwise && q.pairwise.pairs.length > 0) {
+        console.log(`    ${DIM}Pairwise results:${RESET}`);
+        for (const pair of q.pairwise.pairs) {
+          const dims = pair.perDimension;
+          const entries = [
+            `prd→${dims.prdAdherence.winner}`,
+            `code→${dims.codeQuality.winner}`,
+            `test→${dims.testQuality.winner}`,
+            `disc→${dims.changeDiscipline.winner}`,
+          ];
+          console.log(`    ${pair.profileA} vs ${pair.profileB}: ${entries.join(', ')}`);
+        }
+        // Print win summary
+        const summary = q.pairwise.summary.perDimension;
+        const DIMS_DISPLAY = ['prdAdherence', 'codeQuality', 'testQuality', 'changeDiscipline'];
+        console.log(`    ${DIM}Win counts per dimension:${RESET}`);
+        for (const dim of DIMS_DISPLAY) {
+          if (!summary[dim]) continue;
+          const counts = Object.entries(summary[dim])
+            .filter(([, v]) => v > 0)
+            .map(([k, v]) => `${k}: ${v}`)
+            .join(', ');
+          console.log(`      ${pad(dim, 20)} ${counts}`);
+        }
+      }
+    }
+
     console.log('');
   }
 }
 
 // --- Main ---
 
-function main(): void {
-  const runDir = process.argv[2];
+async function main(): Promise<void> {
+  // Parse args: <run-dir> [--score-quality]
+  const positional = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+  const flags = process.argv.slice(2).filter((a) => a.startsWith('--'));
+  const runDir = positional[0];
+  const scoreQualityFlag = flags.includes('--score-quality');
 
   if (!runDir) {
-    console.error('Usage: npx tsx lib/compare.ts <run-dir>');
+    console.error('Usage: npx tsx lib/compare.ts <run-dir> [--score-quality]');
     process.exit(1);
   }
 
@@ -508,16 +790,38 @@ function main(): void {
     runTimestamp = new Date().toISOString();
   }
 
-  const report = buildComparisonReport(runTimestamp, groups);
+  const pairwiseUsage: PairwiseUsageAccumulator = { calls: 0, inputTokens: 0, outputTokens: 0 };
+
+  const report = await buildComparisonReport(runTimestamp, groups, scoreQualityFlag, pairwiseUsage);
 
   const outputPath = join(runDir, 'comparison.json');
   writeFileSync(outputPath, JSON.stringify(report, null, 2) + '\n');
   console.log(`Wrote ${outputPath} (${report.groupCount} comparison groups)`);
 
   printComparisonTable(report);
+
+  // Log pairwise usage summary if any pairwise calls were made
+  if (pairwiseUsage.calls > 0) {
+    const inStr = pairwiseUsage.inputTokens.toLocaleString();
+    const outStr = pairwiseUsage.outputTokens.toLocaleString();
+    let costStr = '~$0.00';
+    try {
+      const judgeConfig = loadJudgeConfig();
+      costStr = formatCostUsd(
+        { inputTokens: pairwiseUsage.inputTokens, outputTokens: pairwiseUsage.outputTokens },
+        judgeConfig.pricing,
+      );
+    } catch {
+      // If config can't be loaded, fall back to ~$0.00
+    }
+    console.log(`pairwise quality scoring: ${pairwiseUsage.calls} call(s), ${inStr} input + ${outStr} output tokens, ${costStr}`);
+  }
 }
 
 // CLI entry point
 if (process.argv[1] && (process.argv[1].endsWith('compare.ts') || process.argv[1].endsWith('compare.js'))) {
-  main();
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
 }
