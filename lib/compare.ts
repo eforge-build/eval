@@ -11,7 +11,7 @@ import {
   type ScenarioResult,
   type AgentAggregate,
 } from './types.js';
-import { scorePairwise, loadJudgeConfig } from './score-quality.js';
+import { scorePairwise, loadJudgeConfig, formatCostUsd } from './score-quality.js';
 import type { PairwiseScoreWithUsage } from './score-quality.js';
 
 // --- Comparison types ---
@@ -804,7 +804,17 @@ async function main(): Promise<void> {
   if (pairwiseUsage.calls > 0) {
     const inStr = pairwiseUsage.inputTokens.toLocaleString();
     const outStr = pairwiseUsage.outputTokens.toLocaleString();
-    console.log(`pairwise quality scoring: ${pairwiseUsage.calls} call(s), ${inStr} input + ${outStr} output tokens`);
+    let costStr = '~$0.00';
+    try {
+      const judgeConfig = loadJudgeConfig();
+      costStr = formatCostUsd(
+        { inputTokens: pairwiseUsage.inputTokens, outputTokens: pairwiseUsage.outputTokens },
+        judgeConfig.pricing,
+      );
+    } catch {
+      // If config can't be loaded, fall back to ~$0.00
+    }
+    console.log(`pairwise quality scoring: ${pairwiseUsage.calls} call(s), ${inStr} input + ${outStr} output tokens, ${costStr}`);
   }
 }
 

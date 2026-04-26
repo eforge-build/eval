@@ -40,6 +40,10 @@ export interface JudgeConfig {
     changeDiscipline: number;
   };
   maxDiffBytes: number;
+  pricing?: {
+    inputUsdPerMTok: number;
+    outputUsdPerMTok: number;
+  };
 }
 
 const SCRIPT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -69,7 +73,27 @@ export function loadJudgeConfig(configPath?: string): JudgeConfig {
     throw new Error(`judge.yaml: weights must sum to 1.0, got ${sum.toFixed(4)}`);
   }
 
+  if (parsed.pricing !== undefined) {
+    if (typeof parsed.pricing !== 'object' || parsed.pricing === null) {
+      throw new Error('judge.yaml: `pricing` must be an object');
+    }
+    if (typeof parsed.pricing.inputUsdPerMTok !== 'number' || parsed.pricing.inputUsdPerMTok < 0) {
+      throw new Error('judge.yaml: `pricing.inputUsdPerMTok` must be a non-negative number');
+    }
+    if (typeof parsed.pricing.outputUsdPerMTok !== 'number' || parsed.pricing.outputUsdPerMTok < 0) {
+      throw new Error('judge.yaml: `pricing.outputUsdPerMTok` must be a non-negative number');
+    }
+  }
+
   return parsed;
+}
+
+export function formatCostUsd(usage: JudgeUsage, pricing: { inputUsdPerMTok: number; outputUsdPerMTok: number } | undefined): string {
+  if (!pricing) {
+    return '~$0.00';
+  }
+  const cost = (usage.inputTokens * pricing.inputUsdPerMTok + usage.outputTokens * pricing.outputUsdPerMTok) / 1_000_000;
+  return `~$${cost.toFixed(2)}`;
 }
 
 // --- Diff truncation ---
@@ -275,10 +299,11 @@ export async function scoreAbsolute(opts: {
 
   const { text: responseText, usage } = await callJudge(prompt, judgeConfig);
 
-  // Log token usage (fulfills "quality scoring: 1 call, N input + M output tokens")
+  // Log token usage (fulfills "quality scoring: 1 call, N input + M output tokens, ~$X.XX")
   const inputStr = usage.inputTokens.toLocaleString();
   const outputStr = usage.outputTokens.toLocaleString();
-  console.log(`  quality scoring: 1 call, ${inputStr} input + ${outputStr} output tokens`);
+  const costStr = formatCostUsd(usage, judgeConfig.pricing);
+  console.log(`  quality scoring: 1 call, ${inputStr} input + ${outputStr} output tokens, ${costStr}`);
 
   // Parse and validate response
   const jsonStr = extractJson(responseText);
@@ -302,7 +327,7 @@ export async function scoreAbsolute(opts: {
   const absolute: AbsoluteScore = {
     judge: {
       model: judgeConfig.model,
-      version: '1',
+      version: 'judge-v1',
     },
     dimensions: {
       prdAdherence: validated.prdAdherence,

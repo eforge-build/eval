@@ -6,3 +6,6 @@ weights:
   testQuality: 0.25
   changeDiscipline: 0.1
 maxDiffBytes: 80000
+pricing:
+  inputUsdPerMTok: 15
+  outputUsdPerMTok: 75
