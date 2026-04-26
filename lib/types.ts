@@ -188,7 +188,7 @@ export interface ProfileDef {
 }
 
 export interface ExpandedScenario {
-  id: string;              // e.g. "todo-api-errand-health-check--claude-sdk-4-7"
+  id: string;              // e.g. "todo-api-errand-health-check--claude-sdk-opus"
   scenario: ScenarioMeta;  // the base scenario
   profile: ProfileDef;     // the profile applied
 }

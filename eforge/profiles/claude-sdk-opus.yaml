@@ -1,0 +1,25 @@
+# Flagship baseline. Claude SDK + Opus 4.7 for planning/review/evaluation,
+# Sonnet 4.6 for implementation. All four tiers set explicitly.
+agentRuntimes:
+  default:
+    harness: claude-sdk
+defaultAgentRuntime: default
+agents:
+  models:
+    max:
+      id: claude-opus-4-7
+    balanced:
+      id: claude-sonnet-4-6
+  tiers:
+    planning:
+      effort: high
+      modelClass: max
+    implementation:
+      effort: medium
+      modelClass: balanced
+    review:
+      effort: high
+      modelClass: max
+    evaluation:
+      effort: high
+      modelClass: max

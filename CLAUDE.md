@@ -17,12 +17,12 @@ End-to-end evaluation harness for [eforge](https://github.com/eforge-build/eforg
 ```bash
 pnpm install                                                  # Install dependencies
 pnpm type-check                                               # TypeScript type-check (lib/**/*.ts)
-./run.sh --profile claude-sdk-4-7 --all                       # Run all scenarios with the 4-7 SDK profile
-./run.sh --profile claude-sdk-4-7 <scenario-id>               # Run a single scenario
-./run.sh --profile claude-sdk-4-7,pi-anthropic-4-7 <scenario-id>  # Run with multiple profiles (parallel)
-./run.sh --profile claude-sdk-4-7 --dry-run                   # Set up workspaces without running eforge
-./run.sh --profile claude-sdk-4-7 --env-file .env             # Source env vars (e.g. Langfuse credentials)
-./run.sh --profile claude-sdk-4-7 --score-quality --all       # Add LLM-as-judge quality scoring (absolute + pairwise)
+./run.sh --profile claude-sdk-opus --all                       # Run all scenarios with the flagship Claude SDK profile
+./run.sh --profile claude-sdk-opus <scenario-id>               # Run a single scenario
+./run.sh --profile claude-sdk-opus,pi-opus <scenario-id>       # Run with multiple profiles (parallel)
+./run.sh --profile claude-sdk-opus --dry-run                   # Set up workspaces without running eforge
+./run.sh --profile claude-sdk-opus --env-file .env             # Source env vars (e.g. Langfuse credentials)
+./run.sh --profile claude-sdk-opus --score-quality --all       # Add LLM-as-judge quality scoring (absolute + pairwise)
 ./run.sh --cleanup                                            # Remove all results
 ```
 
@@ -32,7 +32,7 @@ The harness is a TypeScript pipeline:
 
 1. **`run.sh`** — Thin wrapper that delegates to `npx tsx lib/runner.ts`.
 2. **`scenarios.yaml`** — Defines **what to build**: fixture, PRD, validation commands, and behavioral expectations. Contains no profile configuration.
-3. **`eforge/profiles/*.yaml`** — Defines **how to build**: one plain eforge profile file per profile (e.g. `claude-sdk-4-7.yaml`, `pi-anthropic-4-7.yaml`). Names come from filenames; selected at run time via `--profile`.
+3. **`eforge/profiles/*.yaml`** — Defines **how to build**: one plain eforge profile file per profile (e.g. `claude-sdk-opus.yaml`, `pi-opus.yaml`). Names come from filenames; selected at run time via `--profile`.
 4. **`profile-envs.yaml`** — Maps profile names to env files (for API keys etc.). Profiles without an entry here run without a custom env file. Accepts `envFiles: [...]` (list) or `envFile: <single>` (sugar) per entry.
 5. **`lib/runner.ts`** — Main orchestrator. Cross-products scenarios with selected profiles, groups profiles of the same scenario for parallel execution, pins the profile into each workspace, runs eforge, validates, and checks expectations.
 6. **`lib/build-result.ts`** — Builds `result.json` from eforge logs and the shared SQLite monitor DB (`results/monitor.db`). Extracts token usage, cost, phase durations, per-agent/per-model breakdowns, review metrics, and the profile used.

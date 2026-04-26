@@ -1,3 +1,7 @@
+# Split-runtime experiment: Claude SDK + Opus 4.7 for planning, review, and
+# evaluation; the `builder` role offloaded to a local mlx-lm Qwen model via Pi.
+# Demonstrates per-role override coexisting with tier defaults — the builder
+# override wins over the implementation tier (precedence: per-role > per-tier).
 agentRuntimes:
   opus:
     harness: claude-sdk
@@ -10,6 +14,19 @@ agents:
       id: claude-opus-4-7
     balanced:
       id: claude-sonnet-4-6
+  tiers:
+    planning:
+      effort: high
+      modelClass: max
+    implementation:
+      effort: medium
+      modelClass: balanced
+    review:
+      effort: high
+      modelClass: max
+    evaluation:
+      effort: high
+      modelClass: max
   roles:
     builder:
       agentRuntime: pi-local

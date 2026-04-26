@@ -2,108 +2,63 @@
 
 Each YAML file is a plain eforge profile (loaded into the workspace at run time via `--profile <name>`). Filename = profile name.
 
-Profile files use the `agentRuntimes` shape required by the current engine:
+All profiles use the **tier-based config layer** (`agents.tiers.<tier>`): instead of overriding settings per agent role, effort and model class are set at the tier level. The four tiers are `planning`, `implementation`, `review`, and `evaluation`.
 
-```yaml
-agentRuntimes:
-  default:
-    harness: claude-sdk     # or: pi
-    # claudeSdk: / pi: blocks go here when needed
-defaultAgentRuntime: default
-agents:
-  effort: high
-  models:
-    max:
-      id: claude-opus-4-7
-    balanced:
-      id: claude-sonnet-4-6
-```
+## Profile matrix
 
-## Controlled-comparison pairs
-
-For apples-to-apples profile A/B evals, these profiles deliberately match the variables that affect agent behavior, and isolate only the harness implementation:
-
-| Profile | Harness | Model (max) | Model (balanced) | Effort |
+| Profile | Harness | `max` model | `balanced` model | Distinguishing feature |
 | --- | --- | --- | --- | --- |
-| `claude-sdk-4-7.yaml` | claude-sdk | `claude-opus-4-7` | `claude-sonnet-4-6` | `high` |
-| `pi-anthropic-4-7.yaml` | pi (anthropic) | `claude-opus-4-7` | `claude-sonnet-4-6` | `high` |
-| `claude-sdk-4-6.yaml` | claude-sdk | `claude-opus-4-6` | `claude-sonnet-4-6` | `high` |
-| `pi-anthropic-4-6.yaml` | pi (anthropic) | `claude-opus-4-6` | `claude-sonnet-4-6` | `high` |
+| `claude-sdk-opus` | claude-sdk | `claude-opus-4-7` | `claude-sonnet-4-6` | Flagship baseline. |
+| `pi-opus` | pi (anthropic) | `claude-opus-4-7` | `claude-sonnet-4-6` | Same models as `claude-sdk-opus`, different harness. |
+| `pi-gpt` | pi (openai-codex) | `gpt-5.5` | `gpt-5.5` | Frontier OpenAI lane. |
+| `pi-kimi-k-2-6` | pi (openrouter) | `moonshotai/kimi-k2.6` | `moonshotai/kimi-k2.6` | Open-weights lane (Moonshot Kimi K2.6). |
+| `claude-sdk-opus-no-subagents` | claude-sdk | `claude-opus-4-7` | `claude-sonnet-4-6` | `disableSubagents: true` — `Task` tool removed. |
+| `claude-sdk-opus-xhigh-review` | claude-sdk | `claude-opus-4-7` | `claude-sonnet-4-6` | review + evaluation tiers run at `xhigh` effort. |
+| `mixed-opus-planner-pi-builder` | claude-sdk + pi | `claude-opus-4-7` | `claude-sonnet-4-6` | `builder` role offloaded to local mlx-lm Qwen via Pi. |
 
-Run a controlled 4.7 comparison with `--profile claude-sdk-4-7,pi-anthropic-4-7`. The 4.6 pair gives a baseline lane (2x2: harness × model).
+## Pairings
 
-### What is matched
+Each pair holds all but one variable constant so the comparison isolates that variable:
 
-- `agents.effort` — explicitly set to `high` on both profiles, isolating the eval from per-role default changes in the engine.
-- `agents.models.max.id` and `agents.models.balanced.id` — pinned to the same model IDs.
+| Compares | Command |
+| --- | --- |
+| Harness (Claude SDK vs Pi) | `--profile claude-sdk-opus,pi-opus` |
+| Model family (Opus vs GPT) | `--profile pi-opus,pi-gpt` |
+| Model family (Opus vs Kimi vs GPT) | `--profile pi-opus,pi-gpt,pi-kimi-k-2-6` |
+| Subagent contribution | `--profile claude-sdk-opus,claude-sdk-opus-no-subagents` |
+| Review/eval effort tier | `--profile claude-sdk-opus,claude-sdk-opus-xhigh-review` |
+| Local-builder offload | `--profile claude-sdk-opus,mixed-opus-planner-pi-builder` |
 
-### What is intentionally left unset
+### Controlled-comparison guarantees (claude-sdk-opus ↔ pi-opus)
 
-- `agents.thinking` — Pi maps `{ type: 'adaptive' }` to a fixed `'medium'` string while the Claude SDK truly does adaptive. Leaving thinking unset means both harnesses derive their thinking level from `effort`, which is the cleanest mapping available without engine changes.
+- Matched: `agents.models.max.id`, `agents.models.balanced.id`, all four tier `effort`/`modelClass` values.
+- Intentionally unset: `agents.thinking` — Pi maps `{ type: 'adaptive' }` to a fixed `'medium'` while Claude SDK truly does adaptive. Letting both derive thinking from `effort` is the cleanest mapping available without engine changes.
+- Not controlled (and is part of what you're measuring): tool implementations, prompt-caching behavior, retry policy, and any other harness-specific request-pipeline characteristics.
 
-### What is NOT controlled (and is part of what you're measuring)
+## Tier model
 
-- Tool implementations (Pi's tool surface vs the Claude Agent SDK's preset)
-- Prompt-caching behavior, retry policy, cost/latency characteristics
-- Anything else specific to each SDK's request pipeline
+### Tier categories and roles
 
-## `-no-subagents` variants
+| Tier | Roles |
+| --- | --- |
+| `planning` | planner, module-planner, pipeline-composer, formatter, dependency-detector |
+| `implementation` | builder, review-fixer, validation-fixer, tester, test-writer, gap-closer, doc-updater, recovery-analyst, merge-conflict-resolver |
+| `review` | reviewer, architecture-reviewer, cohesion-reviewer, plan-reviewer, staleness-assessor, prd-validator |
+| `evaluation` | evaluator, architecture-evaluator, cohesion-evaluator, plan-evaluator |
 
-For each `claude-sdk-*.yaml` profile there is a sibling `claude-sdk-*-no-subagents.yaml` that is identical except it sets:
+Built-in defaults: `effort: high, modelClass: max` for planning/review/evaluation; `effort: medium, modelClass: balanced` for implementation.
 
-```yaml
-agentRuntimes:
-  default:
-    harness: claude-sdk
-    claudeSdk:
-      disableSubagents: true
-```
+### Per-tier knobs
 
-This appends `'Task'` to `disallowedTools` on every agent run, so the Claude Code `Task` tool is unavailable and roles cannot fan out into subagents. Pair a profile with its `-no-subagents` sibling to measure the contribution of subagent usage to a run:
+`effort`, `modelClass`, `model`, `thinking`, `maxTurns`, `maxBudgetUsd`, `allowedTools`, `disallowedTools`, `agentRuntime`.
 
-| Lane | Profile | Sibling |
-| --- | --- | --- |
-| opus-4-7 | `claude-sdk-4-7.yaml` | `claude-sdk-4-7-no-subagents.yaml` |
-| opus-4-6 | `claude-sdk-4-6.yaml` | `claude-sdk-4-6-no-subagents.yaml` |
-| sonnet-4-6 (balanced) | `claude-sdk-balanced.yaml` | `claude-sdk-balanced-no-subagents.yaml` |
+### Resolution precedence (highest → lowest)
 
-Example: `--profile claude-sdk-4-7,claude-sdk-4-7-no-subagents`.
+1. Plan-file override
+2. Per-role override (`agents.roles.<role>.<field>`)
+3. Per-tier override (`agents.tiers.<tier>.<field>`)
+4. Global setting (`agents.<field>`)
+5. Built-in per-role exception
+6. Built-in per-tier default
 
-There is no Pi counterpart — Pi has no `Task` tool / subagent concept, so `claudeSdk.disableSubagents` is Claude SDK-only.
-
-## Mixed-runtime profiles
-
-These profiles use the `agentRuntimes` map to assign different harnesses to different roles:
-
-### `mixed-opus-planner-pi-builder.yaml`
-
-Two named runtimes: `opus` (claude-sdk, `claude-opus-4-7`) for planning/review roles, `pi-openrouter` (pi, OpenRouter `qwen/qwen3-coder`) for the builder role. Requires `OPENROUTER_API_KEY` in the environment.
-
-Smoke-test command:
-```bash
-./run.sh --profile opus-only,mixed-opus-planner-pi-builder todo-api-errand-health-check
-```
-
-## `opus-only.yaml`
-
-Single-runtime profile pinned to claude-sdk + `claude-opus-4-7` with `effort: high`. Used as a fast smoke-test baseline alongside mixed-runtime profiles.
-
-## Tier-layer profiles
-
-These profiles exercise the `agents.tiers.<tier>` layer that sits between global agent settings and per-role overrides. The four tiers are `planning`, `implementation`, `review`, and `evaluation`; built-in defaults are `effort=high, modelClass=max` for planning/review/evaluation and `effort=medium, modelClass=balanced` for implementation.
-
-### `claude-sdk-tiers-quality.yaml`
-
-Quality-tilted variant of `claude-sdk-4-7.yaml`: review and evaluation tiers run at `effort: xhigh` while planning and implementation stay at the global `high` baseline. Isolates the effect of harder-thinking review/eval without changing the build path.
-
-```bash
-./run.sh --profile claude-sdk-4-7,claude-sdk-tiers-quality <scenario>
-```
-
-### `claude-sdk-tiers-demo.yaml`
-
-Demonstration profile with all four tiers populated. Values match the built-in tier defaults, so this profile resolves identically to a no-tiers profile — its purpose is to show the shape and inline the role-to-tier membership so per-tier knobs can be edited without re-checking the source. Not intended as a measurement lane on its own.
-
-## Other profiles
-
-`claude-sdk-balanced.yaml` and the `pi-{codex,free,gemma4,glm,kimi-k-2-6,local-qwen-3-6-35B-A3B,nemotron}.yaml` profiles are out of the controlled-comparison pairs above. Use them for separate experiments.
+`mixed-opus-planner-pi-builder` is the canonical example of per-role overriding per-tier: implementation tier defaults to Sonnet on the `opus` runtime, but the `builder` role override pins it to local mlx-lm Qwen on the `pi-local` runtime.

@@ -19,15 +19,15 @@ pnpm install
 `--profile` is required and names one or more profiles from [`eforge/profiles/`](./eforge/profiles/). Comma-separated profiles run in parallel per scenario.
 
 ```bash
-./run.sh --profile claude-sdk-4-7 todo-api-errand-health-check                  # One scenario, one profile
-./run.sh --profile claude-sdk-4-7,pi-anthropic-4-7 todo-api-errand-health-check # Same scenario, two profiles in parallel
-./run.sh --profile claude-sdk-4-7 todo-api-errand-health-check--claude-sdk-4-7  # Exact expanded ID
-./run.sh --profile claude-sdk-4-7 --all                                         # Every scenario
-./run.sh --profile claude-sdk-4-7 --all --env-file .env                         # With extra env vars (e.g. Langfuse creds)
-./run.sh --profile claude-sdk-4-7 --all --repeat 3                              # Run each scenario 3 times, aggregate pass rate
-./run.sh --profile claude-sdk-4-7 --all --compare 2026-04-15T12-00-00           # Diff against a prior run
-./run.sh --profile claude-sdk-4-7 --dry-run todo-api-errand-health-check        # Set up workspace only, skip eforge
-./run.sh --profile claude-sdk-4-7,pi-anthropic-4-7 --score-quality --all        # LLM-as-judge quality scoring (absolute + pairwise)
+./run.sh --profile claude-sdk-opus todo-api-errand-health-check                  # One scenario, one profile
+./run.sh --profile claude-sdk-opus,pi-opus todo-api-errand-health-check          # Same scenario, two profiles in parallel
+./run.sh --profile claude-sdk-opus todo-api-errand-health-check--claude-sdk-opus # Exact expanded ID
+./run.sh --profile claude-sdk-opus --all                                         # Every scenario
+./run.sh --profile claude-sdk-opus --all --env-file .env                         # With extra env vars (e.g. Langfuse creds)
+./run.sh --profile claude-sdk-opus --all --repeat 3                              # Run each scenario 3 times, aggregate pass rate
+./run.sh --profile claude-sdk-opus --all --compare 2026-04-15T12-00-00           # Diff against a prior run
+./run.sh --profile claude-sdk-opus --dry-run todo-api-errand-health-check        # Set up workspace only, skip eforge
+./run.sh --profile claude-sdk-opus,pi-opus --score-quality --all                 # LLM-as-judge quality scoring (absolute + pairwise)
 ./run.sh --cleanup                                                      # Remove all results
 ./open-monitor.sh                                                       # Open monitor UI over the shared DB
 ```
@@ -64,20 +64,20 @@ A single-file shorthand is also accepted: `envFile: env/my.env`.
 
 Pi-backed profiles authenticate in one of two ways:
 
-- **API-key profiles** (e.g. `pi-nemotron`, `pi-free`) load creds from the env file declared in [`profile-envs.yaml`](./profile-envs.yaml) — see [`env/pi.env`](./env/pi.env).
-- **OAuth profiles** (e.g. `pi-codex`) rely on cached credentials at `~/.pi/agent/auth.json`. Run `pi login` once in your user environment before evaluating.
+- **API-key providers** (e.g. anthropic, openrouter) read credentials from environment variables. Declare a per-profile env file in [`profile-envs.yaml`](./profile-envs.yaml) if needed — see [`env/pi.env`](./env/pi.env) for the OpenRouter-style template.
+- **OAuth providers** (e.g. openai-codex used by `pi-gpt`) rely on cached credentials at `~/.pi/agent/auth.json`. Run `pi login` once in your user environment before evaluating.
 
 In profile files, provider/model live under `agents.models.<class>` (usually `max`). There is no `pi.provider` or `pi.model` key — those are not part of eforge's Pi config schema.
 
 ### Mixed-runtime profile
 
-`mixed-opus-planner-pi-builder.yaml` exercises the `agentRuntimes` map: the planner/reviewer use claude-sdk + opus-4-7, while the builder uses pi + OpenRouter `qwen/qwen3-coder`. Run a smoke test comparing it with the single-runtime `opus-only` profile:
+`mixed-opus-planner-pi-builder.yaml` exercises the `agentRuntimes` map: planning, review, and evaluation tiers run on claude-sdk + opus-4-7, while the `builder` role is offloaded to a local mlx-lm Qwen model via Pi. Run a smoke test comparing it with the single-runtime `claude-sdk-opus` baseline:
 
 ```bash
-./run.sh --profile opus-only,mixed-opus-planner-pi-builder todo-api-errand-health-check
+./run.sh --profile claude-sdk-opus,mixed-opus-planner-pi-builder todo-api-errand-health-check
 ```
 
-Requires `OPENROUTER_API_KEY` in the environment (or add an entry to `profile-envs.yaml`).
+Requires the local mlx-lm server to be reachable; no API key needed.
 
 ## How it works
 
@@ -142,7 +142,7 @@ profiles:
       - env/my.env
 ```
 
-Profiles without an entry in `profile-envs.yaml` run without a custom env file (OAuth profiles like `pi-codex` fall into this bucket — they rely on cached credentials).
+Profiles without an entry in `profile-envs.yaml` run without a custom env file (OAuth profiles like `pi-gpt` fall into this bucket — they rely on cached credentials).
 
 Because profile files are native eforge format, you can also copy one from your own `~/.config/eforge/profiles/` into `eval/eforge/profiles/` to measure it in the eval harness.
 

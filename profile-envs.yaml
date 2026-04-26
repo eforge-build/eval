@@ -8,18 +8,6 @@
 #   envFile: path                   (sugar for a single-element envFiles list)
 
 profiles:
-  pi-nemotron:
+  pi-kimi-k-2-6:
     envFiles:
       - env/pi.env
-  pi-glm:
-    envFiles:
-      - env/pi.env
-  pi-free:
-    envFiles:
-      - env/pi.env
-  anthropic-api:
-    envFiles:
-      - env/anthropic.env
-  anthropic-api-4-6:
-    envFiles:
-      - env/anthropic.env

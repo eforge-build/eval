@@ -1,9 +1,0 @@
-agentRuntimes:
-  default:
-    harness: pi
-defaultAgentRuntime: default
-agents:
-  models:
-    max:
-      provider: llama-cpp
-      id: gemma-4

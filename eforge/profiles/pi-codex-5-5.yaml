@@ -1,9 +1,0 @@
-agentRuntimes:
-  default:
-    harness: pi
-defaultAgentRuntime: default
-agents:
-  models:
-    max:
-      provider: openai-codex
-      id: gpt-5.5

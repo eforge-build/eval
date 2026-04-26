@@ -1,0 +1,27 @@
+# Quality-tilted variant. Identical to `claude-sdk-opus.yaml` except review
+# and evaluation tiers run at `xhigh` effort. Pair with `claude-sdk-opus` to
+# measure the cost/quality impact of harder-thinking review/eval without
+# changing the build path.
+agentRuntimes:
+  default:
+    harness: claude-sdk
+defaultAgentRuntime: default
+agents:
+  models:
+    max:
+      id: claude-opus-4-7
+    balanced:
+      id: claude-sonnet-4-6
+  tiers:
+    planning:
+      effort: high
+      modelClass: max
+    implementation:
+      effort: medium
+      modelClass: balanced
+    review:
+      effort: xhigh
+      modelClass: max
+    evaluation:
+      effort: xhigh
+      modelClass: max

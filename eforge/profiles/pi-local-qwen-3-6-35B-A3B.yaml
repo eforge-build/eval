@@ -1,9 +1,0 @@
-agentRuntimes:
-  default:
-    harness: pi
-defaultAgentRuntime: default
-agents:
-  models:
-    max:
-      provider: mlx-lm
-      id: unsloth/Qwen3.6-35B-A3B-UD-MLX-4bit

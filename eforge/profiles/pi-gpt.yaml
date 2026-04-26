@@ -1,0 +1,29 @@
+# Frontier OpenAI lane via Pi's openai-codex provider. GPT-5.5 across both
+# `max` and `balanced` since the codex provider doesn't ship a clean smaller
+# sibling — homogenizing the model is the cleanest cross-family signal.
+# Pair with `pi-opus` to isolate model family on identical Pi harness.
+agentRuntimes:
+  default:
+    harness: pi
+defaultAgentRuntime: default
+agents:
+  models:
+    max:
+      provider: openai-codex
+      id: gpt-5.5
+    balanced:
+      provider: openai-codex
+      id: gpt-5.5
+  tiers:
+    planning:
+      effort: high
+      modelClass: max
+    implementation:
+      effort: medium
+      modelClass: balanced
+    review:
+      effort: high
+      modelClass: max
+    evaluation:
+      effort: high
+      modelClass: max

@@ -1,0 +1,29 @@
+# Subagent ablation. Identical to `claude-sdk-opus.yaml` except the Claude SDK
+# `Task` tool is disabled, so roles cannot fan out into subagents. Pair with
+# `claude-sdk-opus` to measure the contribution of subagents to a run.
+# Claude SDK only — Pi has no subagent concept.
+agentRuntimes:
+  default:
+    harness: claude-sdk
+    claudeSdk:
+      disableSubagents: true
+defaultAgentRuntime: default
+agents:
+  models:
+    max:
+      id: claude-opus-4-7
+    balanced:
+      id: claude-sonnet-4-6
+  tiers:
+    planning:
+      effort: high
+      modelClass: max
+    implementation:
+      effort: medium
+      modelClass: balanced
+    review:
+      effort: high
+      modelClass: max
+    evaluation:
+      effort: high
+      modelClass: max

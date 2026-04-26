@@ -130,7 +130,7 @@ profile-envs.yaml. When multiple profiles are specified, they run in parallel
 for each scenario.
 
 Options:
-  --profile LIST         Comma-separated profile names to run (required, e.g. claude-sdk-4-7,pi-anthropic-4-7)
+  --profile LIST         Comma-separated profile names to run (required, e.g. claude-sdk-opus,pi-opus)
   --all                  Run all scenarios
   --dry-run              Set up workspaces but skip eforge and validation
   --env-file FILE        Source environment variables (e.g. Langfuse credentials)
