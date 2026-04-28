@@ -7,6 +7,8 @@ agentRuntimes:
     harness: claude-sdk
   pi-local:
     harness: pi
+    pi:
+      provider: mlx-lm
 defaultAgentRuntime: opus
 agents:
   models:
@@ -31,5 +33,4 @@ agents:
     builder:
       agentRuntime: pi-local
       model:
-        provider: mlx-lm
         id: unsloth/Qwen3.6-35B-A3B-UD-MLX-4bit

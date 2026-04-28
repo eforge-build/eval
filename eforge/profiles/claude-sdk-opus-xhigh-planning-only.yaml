@@ -1,0 +1,28 @@
+# Tier-effort probe. Identical to claude-sdk-opus.yaml except the planning
+# tier runs at xhigh effort. Pair with claude-sdk-opus to isolate the marginal
+# cost and quality contribution of higher planning effort alone — the only
+# leaf diff is agents.tiers.planning.effort, so compare.ts marginal-delta
+# attribution fires cleanly.
+agentRuntimes:
+  default:
+    harness: claude-sdk
+defaultAgentRuntime: default
+agents:
+  models:
+    max:
+      id: claude-opus-4-7
+    balanced:
+      id: claude-sonnet-4-6
+  tiers:
+    planning:
+      effort: xhigh
+      modelClass: max
+    implementation:
+      effort: medium
+      modelClass: balanced
+    review:
+      effort: high
+      modelClass: max
+    evaluation:
+      effort: high
+      modelClass: max

@@ -1,11 +1,9 @@
-# Same models and tiers as `claude-sdk-opus.yaml`, but routed through the Pi
-# harness via the anthropic provider. Pair with `claude-sdk-opus` to isolate
-# the harness implementation while holding the model constant.
+# Quality-tilted variant. Identical to `claude-sdk-opus.yaml` except planning
+# and review tiers run at `xhigh` effort. Evaluation tier stays at `high` so
+# the only deltas vs. the baseline are on the two tiers named in the profile.
 agentRuntimes:
   default:
-    harness: pi
-    pi:
-      provider: anthropic
+    harness: claude-sdk
 defaultAgentRuntime: default
 agents:
   models:
@@ -15,13 +13,13 @@ agents:
       id: claude-sonnet-4-6
   tiers:
     planning:
-      effort: high
+      effort: xhigh
       modelClass: max
     implementation:
       effort: medium
       modelClass: balanced
     review:
-      effort: high
+      effort: xhigh
       modelClass: max
     evaluation:
       effort: high

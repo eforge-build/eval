@@ -1,18 +1,18 @@
-# Same models and tiers as `claude-sdk-opus.yaml`, but routed through the Pi
-# harness via the anthropic provider. Pair with `claude-sdk-opus` to isolate
-# the harness implementation while holding the model constant.
+# Local Qwen 27b via Pi's llama-cpp provider. Mirrors pi-kimi-k-2-6.yaml's
+# structure (homogenized model across tiers) but targets a self-hosted model
+# for offline/low-cost eval runs.
 agentRuntimes:
   default:
     harness: pi
     pi:
-      provider: anthropic
+      provider: llama-cpp
 defaultAgentRuntime: default
 agents:
   models:
     max:
-      id: claude-opus-4-7
+      id: qwen-27b
     balanced:
-      id: claude-sonnet-4-6
+      id: qwen-27b
   tiers:
     planning:
       effort: high

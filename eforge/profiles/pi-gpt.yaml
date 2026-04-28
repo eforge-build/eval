@@ -5,14 +5,14 @@
 agentRuntimes:
   default:
     harness: pi
+    pi:
+      provider: openai-codex
 defaultAgentRuntime: default
 agents:
   models:
     max:
-      provider: openai-codex
       id: gpt-5.5
     balanced:
-      provider: openai-codex
       id: gpt-5.5
   tiers:
     planning:

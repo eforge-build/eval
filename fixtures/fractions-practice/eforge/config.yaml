@@ -1,0 +1,5 @@
+build:
+  postMergeCommands:
+    - bun install
+    - bun run typecheck
+    - bun run build

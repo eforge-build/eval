@@ -58,7 +58,7 @@ scenarios:
     expect:
       mode: excursion
 
-  - id: workspace-api-expedition-extensions
+  - id: workspace-api-excursion-extensions
     fixture: workspace-api
     prd: docs/add-extension-modules.md
     description: "Add bookmarks, categories, and activity modules - 3 independent verticals"
@@ -67,7 +67,18 @@ scenarios:
       - pnpm type-check
       - pnpm test
     expect:
-      mode: expedition
+      mode: excursion
+
+  - id: workspace-api-excursion-refactor-services
+    fixture: workspace-api
+    prd: docs/refactor-services.md
+    description: "Wide mechanical rename: split store.ts into 6 per-entity service classes; rename ~80 call sites across 12 files"
+    validate:
+      - pnpm install
+      - pnpm type-check
+      - pnpm test
+    expect:
+      mode: excursion
 
   # --- notes-api ---
 
@@ -116,3 +127,16 @@ scenarios:
       mode: excursion
       buildStagesContain:
         - test-cycle
+
+  # --- fractions-practice ---
+
+  - id: fractions-practice-expedition-v1
+    fixture: fractions-practice
+    prd: docs/prd/build-v1.md
+    description: "Greenfield Next.js 15 + Tailwind + shadcn PWA, 9 interdependent subsystems"
+    validate:
+      - bun install
+      - bun run typecheck
+      - bun run build
+    expect:
+      mode: expedition

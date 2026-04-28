@@ -1,0 +1,46 @@
+# Mixed-profile experiment: Kimi K2.6 (OpenRouter) for planning, review, and
+# evaluation; builder, fixer, and tester offloaded to a local Qwen 27b via
+# llama-cpp. Demonstrates per-role override — the role-level config wins over
+# tier defaults (precedence: per-role > per-tier).
+agentRuntimes:
+  pi-kimi:
+    harness: pi
+    pi:
+      provider: openrouter
+  pi-local:
+    harness: pi
+    pi:
+      provider: llama-cpp
+defaultAgentRuntime: pi-kimi
+agents:
+  models:
+    max:
+      id: moonshotai/kimi-k2.6
+    balanced:
+      id: moonshotai/kimi-k2.6
+  tiers:
+    planning:
+      effort: high
+      modelClass: max
+    implementation:
+      effort: medium
+      modelClass: balanced
+    review:
+      effort: high
+      modelClass: max
+    evaluation:
+      effort: high
+      modelClass: max
+  roles:
+    builder:
+      agentRuntime: pi-local
+      model:
+        id: qwen-27b
+    fixer:
+      agentRuntime: pi-local
+      model:
+        id: qwen-27b
+    tester:
+      agentRuntime: pi-local
+      model:
+        id: qwen-27b

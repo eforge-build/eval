@@ -26,13 +26,20 @@ interface PassFailComparison {
   allPassed: boolean;
 }
 
+interface CostEntry {
+  profile: string;
+  value: number; // costUsd
+  costPerQuality?: number; // USD per weighted quality point
+}
+
 interface CostComparison {
-  ranked: ProfileValue<number>[];
+  ranked: CostEntry[];
   noData: string[];
   bestProfile: string;
   worstProfile: string;
   absoluteDelta: number;
   ratio?: number;
+  bestCostPerQualityProfile?: string;
 }
 
 interface TokenComparison {
@@ -123,6 +130,41 @@ interface QualityComparison {
   pairwise?: QualityPairwiseSubBlock;
 }
 
+// --- Marginal delta + archetype rollup types ---
+
+interface MarginalDelta {
+  profileA: string;
+  profileB: string;
+  changedKnob: { path: string; oldValue: unknown; newValue: unknown };
+  costDelta: number; // costB - costA (USD)
+  qualityDelta?: number; // qualityB - qualityA (weighted)
+  qualityPerDollar?: number; // qualityDelta / costDelta when both available and costDelta != 0
+}
+
+interface ArchetypePerProfile {
+  profile: string;
+  scenarios: number;
+  passes: number;
+  passRate: number;
+  meanCost?: number;
+  meanDuration: number;
+  meanQuality?: number;
+  meanCostPerQuality?: number;
+}
+
+interface ArchetypeRollup {
+  archetype: string;
+  scenarioCount: number;
+  perProfile: ArchetypePerProfile[];
+  best: {
+    cost?: { profile: string; value: number };
+    quality?: { profile: string; value: number };
+    duration?: { profile: string; value: number };
+    costPerQuality?: { profile: string; value: number };
+    passRate?: { profile: string; value: number };
+  };
+}
+
 interface ComparisonDimensions {
   passFail: PassFailComparison;
   cost: CostComparison;
@@ -139,14 +181,17 @@ interface ComparisonGroup {
   groupId: string;
   fixture: string;
   prd: string;
+  archetype?: string;
   profiles: string[];
   dimensions: ComparisonDimensions;
+  marginalDeltas?: MarginalDelta[];
 }
 
 interface ComparisonReport {
   runTimestamp: string;
   groupCount: number;
   groups: ComparisonGroup[];
+  archetypes?: ArchetypeRollup[];
 }
 
 // --- Profile entry used internally ---
@@ -219,6 +264,72 @@ function profilesWithMetrics(profiles: ProfileEntry[]): { source: ProfileEntry[]
   return { source: withData.length > 0 ? withData : profiles, noData };
 }
 
+/** Read the absolute weighted quality score off a result, if scored. */
+function getWeightedQuality(result: ScenarioResult): number | undefined {
+  return result.quality?.absolute?.overall.weighted;
+}
+
+/** Flatten a nested config object to a {path: leaf} map. Arrays serialize as JSON for shallow equality. */
+function flattenConfig(
+  obj: unknown,
+  prefix = '',
+  out = new Map<string, unknown>(),
+): Map<string, unknown> {
+  if (obj == null || typeof obj !== 'object') {
+    if (prefix) out.set(prefix, obj);
+    return out;
+  }
+  if (Array.isArray(obj)) {
+    out.set(prefix, JSON.stringify(obj));
+    return out;
+  }
+  for (const [k, v] of Object.entries(obj)) {
+    const path = prefix ? `${prefix}.${k}` : k;
+    if (v != null && typeof v === 'object' && !Array.isArray(v)) {
+      flattenConfig(v, path, out);
+    } else if (Array.isArray(v)) {
+      out.set(path, JSON.stringify(v));
+    } else {
+      out.set(path, v);
+    }
+  }
+  return out;
+}
+
+function diffProfileConfigs(
+  a: unknown,
+  b: unknown,
+): Array<{ path: string; oldValue: unknown; newValue: unknown }> {
+  const flatA = flattenConfig(a);
+  const flatB = flattenConfig(b);
+  const allKeys = new Set<string>([...flatA.keys(), ...flatB.keys()]);
+  const diffs: Array<{ path: string; oldValue: unknown; newValue: unknown }> = [];
+  for (const k of allKeys) {
+    const av = flatA.get(k);
+    const bv = flatB.get(k);
+    if (av !== bv) {
+      diffs.push({ path: k, oldValue: av, newValue: bv });
+    }
+  }
+  return diffs;
+}
+
+/** Derive scenario archetype from expectations (preferred) or scenario ID. */
+function deriveArchetype(groupId: string, profiles: ProfileEntry[]): string | undefined {
+  for (const p of profiles) {
+    const modeCheck = p.result.expectations?.checks?.find((c) => c.check === 'mode');
+    if (modeCheck && typeof modeCheck.expected === 'string') {
+      return modeCheck.expected;
+    }
+  }
+  for (const archetype of ['errand', 'excursion', 'expedition']) {
+    if (groupId.includes(`-${archetype}-`) || groupId.endsWith(`-${archetype}`)) {
+      return archetype;
+    }
+  }
+  return undefined;
+}
+
 // --- Dimension comparators ---
 
 function comparePassFail(profiles: ProfileEntry[]): PassFailComparison {
@@ -252,10 +363,15 @@ function compareCost(profiles: ProfileEntry[]): CostComparison {
   // so they don't appear as "$0 cheapest".
   const { source, noData } = profilesWithMetrics(profiles);
 
-  const values = source.map((v) => ({
-    profile: v.label,
-    value: v.result.metrics?.costUsd ?? 0,
-  }));
+  const values: CostEntry[] = source.map((v) => {
+    const cost = v.result.metrics?.costUsd ?? 0;
+    const quality = getWeightedQuality(v.result);
+    const entry: CostEntry = { profile: v.label, value: cost };
+    if (quality != null && quality > 0 && cost > 0) {
+      entry.costPerQuality = cost / quality;
+    }
+    return entry;
+  });
 
   const ranked = [...values].sort((a, b) => a.value - b.value);
   const best = ranked[0];
@@ -272,6 +388,13 @@ function compareCost(profiles: ProfileEntry[]): CostComparison {
 
   if (best.value > 0) {
     result.ratio = worst.value / best.value;
+  }
+
+  // Best cost-per-quality (lowest $/quality-point wins).
+  const withCpq = ranked.filter((e) => e.costPerQuality != null);
+  if (withCpq.length > 0) {
+    const bestCpq = [...withCpq].sort((a, b) => a.costPerQuality! - b.costPerQuality!)[0];
+    result.bestCostPerQualityProfile = bestCpq.profile;
   }
 
   return result;
@@ -402,6 +525,163 @@ function compareToolUsage(profiles: ProfileEntry[]): ToolUsageComparison {
   };
 }
 
+// --- Marginal deltas (one-knob attribution) ---
+
+function computeMarginalDeltas(profiles: ProfileEntry[]): MarginalDelta[] {
+  const deltas: MarginalDelta[] = [];
+
+  for (const [a, b] of uniquePairs(profiles)) {
+    const configA = a.result.profile?.config;
+    const configB = b.result.profile?.config;
+    if (!configA || !configB) continue;
+
+    const diffs = diffProfileConfigs(configA, configB);
+    if (diffs.length !== 1) continue; // only attribute when exactly one knob differs
+
+    const costA = a.result.metrics?.costUsd;
+    const costB = b.result.metrics?.costUsd;
+    if (costA == null || costB == null) continue;
+
+    const costDelta = costB - costA;
+    const delta: MarginalDelta = {
+      profileA: a.label,
+      profileB: b.label,
+      changedKnob: diffs[0],
+      costDelta,
+    };
+
+    const qualityA = getWeightedQuality(a.result);
+    const qualityB = getWeightedQuality(b.result);
+    if (qualityA != null && qualityB != null) {
+      delta.qualityDelta = qualityB - qualityA;
+      if (costDelta !== 0) {
+        delta.qualityPerDollar = delta.qualityDelta / costDelta;
+      }
+    }
+
+    deltas.push(delta);
+  }
+
+  return deltas;
+}
+
+// --- Archetype rollups (mean across scenarios per archetype) ---
+
+interface ProfileAcc {
+  scenarios: number;
+  passes: number;
+  costSum: number;
+  costN: number;
+  durationSum: number;
+  durationN: number;
+  qualitySum: number;
+  qualityN: number;
+  cpqSum: number;
+  cpqN: number;
+}
+
+function emptyAcc(): ProfileAcc {
+  return {
+    scenarios: 0, passes: 0, costSum: 0, costN: 0,
+    durationSum: 0, durationN: 0, qualitySum: 0, qualityN: 0, cpqSum: 0, cpqN: 0,
+  };
+}
+
+function computeArchetypeRollups(groups: ComparisonGroup[]): ArchetypeRollup[] {
+  const byArchetype = new Map<string, ComparisonGroup[]>();
+  for (const group of groups) {
+    if (!group.archetype) continue;
+    if (!byArchetype.has(group.archetype)) byArchetype.set(group.archetype, []);
+    byArchetype.get(group.archetype)!.push(group);
+  }
+
+  const rollups: ArchetypeRollup[] = [];
+  for (const [archetype, groupList] of byArchetype) {
+    const perProfileAcc = new Map<string, ProfileAcc>();
+
+    const ensure = (label: string): ProfileAcc => {
+      if (!perProfileAcc.has(label)) perProfileAcc.set(label, emptyAcc());
+      return perProfileAcc.get(label)!;
+    };
+
+    for (const group of groupList) {
+      const dims = group.dimensions;
+      for (const entry of dims.passFail.ranked) {
+        const acc = ensure(entry.profile);
+        acc.scenarios += 1;
+        if (entry.value.passed) acc.passes += 1;
+      }
+      for (const entry of dims.cost.ranked) {
+        const acc = ensure(entry.profile);
+        acc.costSum += entry.value;
+        acc.costN += 1;
+        if (entry.costPerQuality != null) {
+          acc.cpqSum += entry.costPerQuality;
+          acc.cpqN += 1;
+        }
+      }
+      for (const entry of dims.duration.ranked) {
+        const acc = ensure(entry.profile);
+        acc.durationSum += entry.value;
+        acc.durationN += 1;
+      }
+      if (dims.quality?.absolute) {
+        for (const entry of dims.quality.absolute.ranked) {
+          const acc = ensure(entry.profile);
+          acc.qualitySum += entry.weighted;
+          acc.qualityN += 1;
+        }
+      }
+    }
+
+    const perProfile: ArchetypePerProfile[] = [];
+    for (const [profile, acc] of perProfileAcc) {
+      const entry: ArchetypePerProfile = {
+        profile,
+        scenarios: acc.scenarios,
+        passes: acc.passes,
+        passRate: acc.scenarios > 0 ? acc.passes / acc.scenarios : 0,
+        meanDuration: acc.durationN > 0 ? acc.durationSum / acc.durationN : 0,
+      };
+      if (acc.costN > 0) entry.meanCost = acc.costSum / acc.costN;
+      if (acc.qualityN > 0) entry.meanQuality = acc.qualitySum / acc.qualityN;
+      if (acc.cpqN > 0) entry.meanCostPerQuality = acc.cpqSum / acc.cpqN;
+      perProfile.push(entry);
+    }
+
+    const best: ArchetypeRollup['best'] = {};
+    const byCost = perProfile.filter((e) => e.meanCost != null).sort((a, b) => a.meanCost! - b.meanCost!);
+    if (byCost.length > 0) best.cost = { profile: byCost[0].profile, value: byCost[0].meanCost! };
+
+    const byQuality = perProfile.filter((e) => e.meanQuality != null).sort((a, b) => b.meanQuality! - a.meanQuality!);
+    if (byQuality.length > 0) best.quality = { profile: byQuality[0].profile, value: byQuality[0].meanQuality! };
+
+    const byDuration = perProfile.filter((e) => e.meanDuration > 0).sort((a, b) => a.meanDuration - b.meanDuration);
+    if (byDuration.length > 0) best.duration = { profile: byDuration[0].profile, value: byDuration[0].meanDuration };
+
+    const byCpq = perProfile.filter((e) => e.meanCostPerQuality != null).sort((a, b) => a.meanCostPerQuality! - b.meanCostPerQuality!);
+    if (byCpq.length > 0) best.costPerQuality = { profile: byCpq[0].profile, value: byCpq[0].meanCostPerQuality! };
+
+    if (perProfile.length > 0) {
+      const sortedByPass = [...perProfile].sort((a, b) => b.passRate - a.passRate);
+      best.passRate = { profile: sortedByPass[0].profile, value: sortedByPass[0].passRate };
+    }
+
+    rollups.push({ archetype, scenarioCount: groupList.length, perProfile, best });
+  }
+
+  const order = ['errand', 'excursion', 'expedition'];
+  rollups.sort((a, b) => {
+    const ai = order.indexOf(a.archetype);
+    const bi = order.indexOf(b.archetype);
+    if (ai === -1 && bi === -1) return a.archetype.localeCompare(b.archetype);
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+    return ai - bi;
+  });
+  return rollups;
+}
+
 // --- Quality comparison ---
 
 /** Generate all unique pairs from an array. */
@@ -422,7 +702,7 @@ interface PairwiseUsageAccumulator {
 
 async function compareQuality(
   profiles: ProfileEntry[],
-  scoreQualityFlag: boolean,
+  skipQuality: boolean,
   usageAccumulator: PairwiseUsageAccumulator,
 ): Promise<QualityComparison | undefined> {
   const DIMENSIONS = ['prdAdherence', 'codeQuality', 'testQuality', 'changeDiscipline'] as const;
@@ -433,8 +713,9 @@ async function compareQuality(
   const noData = profiles.filter((p) => p.result.quality?.absolute == null).map((p) => p.label);
   const hasAbsolute = withAbsolute.length > 0;
 
-  // Auto-detect: include quality if any profile has absolute data OR --score-quality was set
-  if (!hasAbsolute && !scoreQualityFlag) {
+  // With --skip-quality, suppress only when there is no pre-existing absolute data
+  // to display. Existing data from a prior scored run still surfaces.
+  if (skipQuality && !hasAbsolute) {
     return undefined;
   }
 
@@ -461,9 +742,9 @@ async function compareQuality(
     };
   }
 
-  // Pairwise: only run when --score-quality flag is set AND snapshot files exist
+  // Pairwise: default-on, runs when not skipped AND snapshot files exist
   let pairwiseBlock: QualityPairwiseSubBlock | undefined;
-  if (scoreQualityFlag && profiles.length >= 2) {
+  if (!skipQuality && profiles.length >= 2) {
     const pairs: PairwiseEntry[] = [];
     const summary: Record<Dim, Record<string, number>> = {
       prdAdherence: {},
@@ -577,18 +858,21 @@ async function compareQuality(
 async function buildComparisonReport(
   runTimestamp: string,
   groups: Map<string, { fixture: string; prd: string; profiles: ProfileEntry[] }>,
-  scoreQualityFlag: boolean,
+  skipQuality: boolean,
   pairwiseUsage: PairwiseUsageAccumulator,
 ): Promise<ComparisonReport> {
   const comparisonGroups: ComparisonGroup[] = [];
 
   for (const [groupId, group] of groups) {
     const { profiles } = group;
-    const quality = await compareQuality(profiles, scoreQualityFlag, pairwiseUsage);
+    const quality = await compareQuality(profiles, skipQuality, pairwiseUsage);
+    const archetype = deriveArchetype(groupId, profiles);
+    const marginalDeltas = computeMarginalDeltas(profiles);
     comparisonGroups.push({
       groupId,
       fixture: group.fixture,
       prd: group.prd,
+      ...(archetype && { archetype }),
       profiles: profiles.map((v) => v.label),
       dimensions: {
         passFail: comparePassFail(profiles),
@@ -601,13 +885,17 @@ async function buildComparisonReport(
         toolUsage: compareToolUsage(profiles),
         ...(quality && { quality }),
       },
+      ...(marginalDeltas.length > 0 && { marginalDeltas }),
     });
   }
+
+  const archetypes = computeArchetypeRollups(comparisonGroups);
 
   return {
     runTimestamp,
     groupCount: comparisonGroups.length,
     groups: comparisonGroups,
+    ...(archetypes.length > 0 && { archetypes }),
   };
 }
 
@@ -630,7 +918,8 @@ function printComparisonTable(report: ComparisonReport): void {
   console.log('');
 
   for (const group of report.groups) {
-    console.log(`${BOLD}${CYAN}${group.groupId}${RESET}`);
+    const archetypeStr = group.archetype ? ` ${DIM}[${group.archetype}]${RESET}` : '';
+    console.log(`${BOLD}${CYAN}${group.groupId}${RESET}${archetypeStr}`);
     console.log(`${DIM}Profiles: ${group.profiles.join(', ')}${RESET}`);
     console.log(line);
 
@@ -645,15 +934,22 @@ function printComparisonTable(report: ComparisonReport): void {
     console.log(`${BOLD}  Cost:${RESET}`);
     for (const entry of group.dimensions.cost.ranked) {
       const isBest = entry.profile === group.dimensions.cost.bestProfile;
+      const isBestCpq = entry.profile === group.dimensions.cost.bestCostPerQualityProfile;
       const color = isBest ? GREEN : '';
       const reset = isBest ? RESET : '';
-      console.log(`    ${pad(entry.profile, 30)} ${color}$${entry.value.toFixed(2)}${reset}`);
+      const cpqStr = entry.costPerQuality != null
+        ? `  ${isBestCpq ? GREEN : DIM}$${entry.costPerQuality.toFixed(3)}/Q${RESET}`
+        : '';
+      console.log(`    ${pad(entry.profile, 30)} ${color}$${entry.value.toFixed(2)}${reset}${cpqStr}`);
     }
     if (group.dimensions.cost.absoluteDelta > 0) {
       const ratioStr = group.dimensions.cost.ratio != null
         ? ` (${group.dimensions.cost.ratio.toFixed(1)}x)`
         : '';
       console.log(`    ${DIM}Δ $${group.dimensions.cost.absoluteDelta.toFixed(2)}${ratioStr}${RESET}`);
+    }
+    if (group.dimensions.cost.bestCostPerQualityProfile) {
+      console.log(`    ${DIM}Best $/Q: ${group.dimensions.cost.bestCostPerQualityProfile}${RESET}`);
     }
 
     // Tokens
@@ -753,21 +1049,82 @@ function printComparisonTable(report: ComparisonReport): void {
       }
     }
 
+    // Marginal deltas (one-knob attribution)
+    if (group.marginalDeltas && group.marginalDeltas.length > 0) {
+      console.log(`${BOLD}  Marginal deltas (one-knob diffs):${RESET}`);
+      for (const md of group.marginalDeltas) {
+        const oldStr = JSON.stringify(md.changedKnob.oldValue);
+        const newStr = JSON.stringify(md.changedKnob.newValue);
+        console.log(
+          `    ${md.profileA} → ${md.profileB}  ${DIM}[${md.changedKnob.path}: ${oldStr} → ${newStr}]${RESET}`,
+        );
+        const sign = md.costDelta >= 0 ? '+' : '−';
+        console.log(`      Δcost: ${sign}$${Math.abs(md.costDelta).toFixed(2)}`);
+        if (md.qualityDelta != null) {
+          const qSign = md.qualityDelta >= 0 ? '+' : '−';
+          console.log(`      Δquality: ${qSign}${Math.abs(md.qualityDelta).toFixed(2)}`);
+          if (md.qualityPerDollar != null) {
+            const ppSign = md.qualityPerDollar >= 0 ? '+' : '−';
+            console.log(`      Quality per +$1: ${ppSign}${Math.abs(md.qualityPerDollar).toFixed(2)}`);
+          }
+        }
+      }
+    }
+
     console.log('');
+  }
+
+  // Archetype rollups (cross-group)
+  if (report.archetypes && report.archetypes.length > 0) {
+    console.log(`${BOLD}━━━ Archetype rollups ━━━${RESET}`);
+    console.log('');
+    for (const ar of report.archetypes) {
+      console.log(`${BOLD}${CYAN}${ar.archetype}${RESET} ${DIM}(${ar.scenarioCount} scenario${ar.scenarioCount === 1 ? '' : 's'})${RESET}`);
+      const b = ar.best;
+      if (b.cost) {
+        console.log(`  Best mean cost:        ${pad(b.cost.profile, 32)} ${GREEN}$${b.cost.value.toFixed(2)}${RESET}`);
+      }
+      if (b.quality) {
+        console.log(`  Best mean quality:     ${pad(b.quality.profile, 32)} ${GREEN}${b.quality.value.toFixed(2)}${RESET}`);
+      }
+      if (b.costPerQuality) {
+        console.log(`  Best mean $/Q:         ${pad(b.costPerQuality.profile, 32)} ${GREEN}$${b.costPerQuality.value.toFixed(3)}/Q${RESET}`);
+      }
+      if (b.duration) {
+        const mins = Math.floor(b.duration.value / 60);
+        const secs = Math.round(b.duration.value % 60);
+        console.log(`  Best mean duration:    ${pad(b.duration.profile, 32)} ${GREEN}${mins}m ${secs}s${RESET}`);
+      }
+      if (b.passRate) {
+        console.log(`  Best pass rate:        ${pad(b.passRate.profile, 32)} ${GREEN}${(b.passRate.value * 100).toFixed(0)}%${RESET}`);
+      }
+      console.log(`  ${DIM}Per-profile means:${RESET}`);
+      for (const p of ar.perProfile) {
+        const parts: string[] = [`${p.passes}/${p.scenarios} pass`];
+        if (p.meanCost != null) parts.push(`$${p.meanCost.toFixed(2)}`);
+        if (p.meanQuality != null) parts.push(`Q=${p.meanQuality.toFixed(2)}`);
+        if (p.meanCostPerQuality != null) parts.push(`$${p.meanCostPerQuality.toFixed(3)}/Q`);
+        const dMins = Math.floor(p.meanDuration / 60);
+        const dSecs = Math.round(p.meanDuration % 60);
+        parts.push(`${dMins}m ${dSecs}s`);
+        console.log(`    ${pad(p.profile, 32)} ${parts.join('  ')}`);
+      }
+      console.log('');
+    }
   }
 }
 
 // --- Main ---
 
 async function main(): Promise<void> {
-  // Parse args: <run-dir> [--score-quality]
+  // Parse args: <run-dir> [--skip-quality]
   const positional = process.argv.slice(2).filter((a) => !a.startsWith('--'));
   const flags = process.argv.slice(2).filter((a) => a.startsWith('--'));
   const runDir = positional[0];
-  const scoreQualityFlag = flags.includes('--score-quality');
+  const skipQuality = flags.includes('--skip-quality');
 
   if (!runDir) {
-    console.error('Usage: npx tsx lib/compare.ts <run-dir> [--score-quality]');
+    console.error('Usage: npx tsx lib/compare.ts <run-dir> [--skip-quality]');
     process.exit(1);
   }
 
@@ -792,7 +1149,7 @@ async function main(): Promise<void> {
 
   const pairwiseUsage: PairwiseUsageAccumulator = { calls: 0, inputTokens: 0, outputTokens: 0 };
 
-  const report = await buildComparisonReport(runTimestamp, groups, scoreQualityFlag, pairwiseUsage);
+  const report = await buildComparisonReport(runTimestamp, groups, skipQuality, pairwiseUsage);
 
   const outputPath = join(runDir, 'comparison.json');
   writeFileSync(outputPath, JSON.stringify(report, null, 2) + '\n');

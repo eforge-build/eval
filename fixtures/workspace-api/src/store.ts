@@ -1,4 +1,13 @@
-import type { Workspace, Member, MemberRole, Channel, Message } from './types.js';
+import type {
+  Workspace,
+  Member,
+  MemberRole,
+  Channel,
+  Message,
+  Invitation,
+  InvitationStatus,
+  Label,
+} from './types.js';
 
 // --- State ---
 
@@ -6,10 +15,14 @@ let workspaces: Workspace[] = [];
 let members: Member[] = [];
 let channels: Channel[] = [];
 let messages: Message[] = [];
+let invitations: Invitation[] = [];
+let labels: Label[] = [];
 
 let nextWorkspaceId = 1;
 let nextChannelId = 1;
 let nextMessageId = 1;
+let nextInvitationId = 1;
+let nextLabelId = 1;
 
 // --- Workspaces ---
 
@@ -48,11 +61,13 @@ export function deleteWorkspace(id: string): boolean {
   const index = workspaces.findIndex((w) => w.id === id);
   if (index === -1) return false;
   workspaces.splice(index, 1);
-  // Cascade: remove members, channels, and messages
+  // Cascade: remove members, channels, messages, invitations, and labels
   const channelIds = channels.filter((c) => c.workspaceId === id).map((c) => c.id);
   members = members.filter((m) => m.workspaceId !== id);
   channels = channels.filter((c) => c.workspaceId !== id);
   messages = messages.filter((m) => !channelIds.includes(m.channelId));
+  invitations = invitations.filter((inv) => inv.workspaceId !== id);
+  labels = labels.filter((l) => l.workspaceId !== id);
   return true;
 }
 
@@ -187,6 +202,94 @@ export function deleteMessage(id: string): boolean {
   return true;
 }
 
+// --- Invitations ---
+
+export function getInvitationsByWorkspace(workspaceId: string): Invitation[] {
+  return invitations.filter((inv) => inv.workspaceId === workspaceId);
+}
+
+export function getInvitationById(id: string): Invitation | undefined {
+  return invitations.find((inv) => inv.id === id);
+}
+
+export function createInvitation(
+  workspaceId: string,
+  email: string,
+  invitedBy: string,
+): Invitation {
+  const invitation: Invitation = {
+    id: String(nextInvitationId++),
+    workspaceId,
+    email,
+    invitedBy,
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  };
+  invitations.push(invitation);
+  return invitation;
+}
+
+export function updateInvitationStatus(
+  id: string,
+  status: InvitationStatus,
+): Invitation | undefined {
+  const invitation = invitations.find((inv) => inv.id === id);
+  if (!invitation) return undefined;
+  invitation.status = status;
+  return { ...invitation };
+}
+
+export function deleteInvitation(id: string): boolean {
+  const index = invitations.findIndex((inv) => inv.id === id);
+  if (index === -1) return false;
+  invitations.splice(index, 1);
+  return true;
+}
+
+// --- Labels ---
+
+export function getLabelsByWorkspace(workspaceId: string): Label[] {
+  return labels.filter((l) => l.workspaceId === workspaceId);
+}
+
+export function getLabelById(id: string): Label | undefined {
+  return labels.find((l) => l.id === id);
+}
+
+export function createLabel(
+  workspaceId: string,
+  name: string,
+  color: string,
+): Label {
+  const label: Label = {
+    id: String(nextLabelId++),
+    workspaceId,
+    name,
+    color,
+    createdAt: new Date().toISOString(),
+  };
+  labels.push(label);
+  return label;
+}
+
+export function updateLabel(
+  id: string,
+  updates: Partial<Pick<Label, 'name' | 'color'>>,
+): Label | undefined {
+  const label = labels.find((l) => l.id === id);
+  if (!label) return undefined;
+  if (updates.name !== undefined) label.name = updates.name;
+  if (updates.color !== undefined) label.color = updates.color;
+  return { ...label };
+}
+
+export function deleteLabel(id: string): boolean {
+  const index = labels.findIndex((l) => l.id === id);
+  if (index === -1) return false;
+  labels.splice(index, 1);
+  return true;
+}
+
 // --- Reset ---
 
 export function clearAll(): void {
@@ -194,7 +297,11 @@ export function clearAll(): void {
   members = [];
   channels = [];
   messages = [];
+  invitations = [];
+  labels = [];
   nextWorkspaceId = 1;
   nextChannelId = 1;
   nextMessageId = 1;
+  nextInvitationId = 1;
+  nextLabelId = 1;
 }

@@ -31,3 +31,22 @@ export interface Message {
   createdAt: string;
   editedAt: string | null;
 }
+
+export type InvitationStatus = 'pending' | 'accepted' | 'expired';
+
+export interface Invitation {
+  id: string;
+  workspaceId: string;
+  email: string;
+  invitedBy: string;
+  status: InvitationStatus;
+  createdAt: string;
+}
+
+export interface Label {
+  id: string;
+  workspaceId: string;
+  name: string;
+  color: string;
+  createdAt: string;
+}

@@ -28,9 +28,10 @@ Read per backend, in this order:
 
 1. **`eforge.log`** — authoritative for *what each agent decided*. Pipeline-composer JSON output, planner's chosen profile, which build agents actually ran, review issues raised, evaluator verdicts. Cite by line number when possible.
 2. **`result.json`** — authoritative for tokens, cost, duration, per-agent aggregates. Also contains `expectations` check results and the `backend.profile` so you know what model/backend was configured. **Also inspect `metrics.models`** — backends often mix models across agents (e.g. opus for planner/builder, sonnet for prd-validator). To find *which* agent used *which* model, query the monitor DB directly: `SELECT agent, data FROM events WHERE type='agent:result' AND run_id IN (...)` and read each row's `result.modelUsage` keys. Worth calling out when a cheaper model is routed to low-stakes stages — that's a deliberate design choice, not an accident.
-3. **`comparison.json`** (if present) — numeric rankings across cost/tokens/duration/cache/pass-fail. Cite directly for the quantitative dimensions; don't recompute.
-4. **`validate-*.log`** — whether install/type-check/test actually passed in the workspace.
-5. **`workspace-path.txt`** → `git log --stat` or `git show` in that workspace — use only when scope creep is suspected (e.g. a doc-updater ran). Look for files touched that the PRD didn't ask for.
+3. **`result.json.quality.absolute`** (if present) — LLM-as-judge absolute rubric over the PRD + final git diff. Has per-dimension scores (`prdAdherence`, `codeQuality`, `testQuality`, `changeDiscipline`) on a 1-5 scale plus `overall.weighted`. The judge is a separate one-shot Opus call with tools disabled (see `lib/score-quality.ts`); treat it as an independent cross-check on the artifact, not a substitute for log reading. Inputs are snapshotted at `<scenarioDir>/quality/{prd.md,diff.patch}` — read those if a score looks suspicious.
+4. **`comparison.json`** (if present) — numeric rankings across cost/tokens/duration/cache/pass-fail, plus a `quality` dimension under `groups[].dimensions.quality` (pairwise LLM-as-judge over the same PRD + diff snapshots). Cite directly for the quantitative dimensions; don't recompute.
+5. **`validate-*.log`** — whether install/type-check/test actually passed in the workspace.
+6. **`workspace-path.txt`** → `git log --stat` or `git show` in that workspace — use only when scope creep is suspected (e.g. a doc-updater ran). Look for files touched that the PRD didn't ask for.
 
 ### Metrics aggregator caveat — check this early
 
@@ -59,6 +60,7 @@ Judge each dimension per backend. Declare a winner (or tie) with a one-line reas
 | Doc discipline | See **Doc discipline** section below. Applies to every backend, not just ones that ran a doc-updater. |
 | Scope discipline | Non-doc files touched vs. files the PRD asked for. Run `git log --stat` in the workspace if unsure. |
 | Final artifact | Did validation pass? Is the artifact equivalent across backends, or is one genuinely better? |
+| Quality (LLM-as-judge) | Cite `result.json.quality.absolute.overall.weighted` per backend and the pairwise `comparison.json.groups[].dimensions.quality` ranking. Use as an independent cross-check, not the final word — investigate the lowest-scoring dimension before accepting the verdict. |
 
 ### Doc discipline
 
@@ -162,5 +164,6 @@ Cite `eforge.log:<line>` inline for specific decisions. Include the `backend.pro
 - **Don't invent stages.** If a stage didn't run for a backend, say so — often *that* is the interesting decision.
 - **Cite line numbers.** Vague claims like "the planner did X" without a cite make the report unverifiable.
 - **When metrics and logs disagree, log wins and flag it.**
+- **Don't trust validation pass alone when judge quality disagrees.** If `validate-*.log` is green but `quality.absolute.overall.weighted < 3` (or any single dimension is 1-2), investigate before declaring the artifact correct. Validation can pass vacuously when no source changes were made — `git log --stat` in the workspace settles it. The judge's diff snapshot at `<scenarioDir>/quality/diff.patch` is the same input the judge saw; read it directly when scores look off.
 - **Don't guess at workspace state.** If you need to know what files changed, actually read `workspace-path.txt` and run `git log --stat` or `git show` in the workspace.
 - **Keep it short.** A 4-backend comparison should still fit in a reviewable page or two. Resist the urge to re-summarize the PRD or the eforge pipeline generically.
