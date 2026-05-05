@@ -1,26 +1,21 @@
 # Quality-tilted variant. Identical to `claude-sdk-opus.yaml` except planning
 # and review tiers run at `xhigh` effort. Evaluation tier stays at `high` so
 # the only deltas vs. the baseline are on the two tiers named in the profile.
-agentRuntimes:
-  default:
-    harness: claude-sdk
-defaultAgentRuntime: default
 agents:
-  models:
-    max:
-      id: claude-opus-4-7
-    balanced:
-      id: claude-sonnet-4-6
   tiers:
     planning:
+      harness: claude-sdk
+      model: claude-opus-4-7
       effort: xhigh
-      modelClass: max
     implementation:
+      harness: claude-sdk
+      model: claude-sonnet-4-6
       effort: medium
-      modelClass: balanced
     review:
+      harness: claude-sdk
+      model: claude-opus-4-7
       effort: xhigh
-      modelClass: max
     evaluation:
+      harness: claude-sdk
+      model: claude-opus-4-7
       effort: high
-      modelClass: max

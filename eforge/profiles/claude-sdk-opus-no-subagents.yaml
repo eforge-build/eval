@@ -2,28 +2,29 @@
 # `Task` tool is disabled, so roles cannot fan out into subagents. Pair with
 # `claude-sdk-opus` to measure the contribution of subagents to a run.
 # Claude SDK only — Pi has no subagent concept.
-agentRuntimes:
-  default:
-    harness: claude-sdk
-    claudeSdk:
-      disableSubagents: true
-defaultAgentRuntime: default
 agents:
-  models:
-    max:
-      id: claude-opus-4-7
-    balanced:
-      id: claude-sonnet-4-6
   tiers:
     planning:
+      harness: claude-sdk
+      claudeSdk:
+        disableSubagents: true
+      model: claude-opus-4-7
       effort: high
-      modelClass: max
     implementation:
+      harness: claude-sdk
+      claudeSdk:
+        disableSubagents: true
+      model: claude-sonnet-4-6
       effort: medium
-      modelClass: balanced
     review:
+      harness: claude-sdk
+      claudeSdk:
+        disableSubagents: true
+      model: claude-opus-4-7
       effort: high
-      modelClass: max
     evaluation:
+      harness: claude-sdk
+      claudeSdk:
+        disableSubagents: true
+      model: claude-opus-4-7
       effort: high
-      modelClass: max

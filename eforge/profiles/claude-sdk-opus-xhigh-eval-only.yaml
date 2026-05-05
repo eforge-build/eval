@@ -3,26 +3,21 @@
 # cost and quality contribution of higher evaluation effort alone — the only
 # leaf diff is agents.tiers.evaluation.effort, so compare.ts marginal-delta
 # attribution fires cleanly.
-agentRuntimes:
-  default:
-    harness: claude-sdk
-defaultAgentRuntime: default
 agents:
-  models:
-    max:
-      id: claude-opus-4-7
-    balanced:
-      id: claude-sonnet-4-6
   tiers:
     planning:
+      harness: claude-sdk
+      model: claude-opus-4-7
       effort: high
-      modelClass: max
     implementation:
+      harness: claude-sdk
+      model: claude-sonnet-4-6
       effort: medium
-      modelClass: balanced
     review:
+      harness: claude-sdk
+      model: claude-opus-4-7
       effort: high
-      modelClass: max
     evaluation:
+      harness: claude-sdk
+      model: claude-opus-4-7
       effort: xhigh
-      modelClass: max

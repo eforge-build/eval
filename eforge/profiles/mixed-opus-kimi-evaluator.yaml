@@ -1,38 +1,31 @@
-# Per-role offload probe. Identical to claude-sdk-opus.yaml except the
-# `evaluator` role runs through Pi + OpenRouter using Moonshot Kimi K2.6
+# Tier-runtime offload probe. Identical to `claude-sdk-opus.yaml` except the
+# entire evaluation tier (evaluator, architecture-evaluator, cohesion-evaluator,
+# plan-evaluator) runs through Pi + OpenRouter using Moonshot Kimi K2.6
 # (open-weights, cheap). Evaluators compare/judge artifacts; a cheaper model
 # is often adequate. Pair with claude-sdk-opus to validate the cost/quality
-# tradeoff of offloading evaluator to a cheap lane while keeping the rest of
-# the build on claude-sdk + Opus/Sonnet.
-agentRuntimes:
-  default:
-    harness: claude-sdk
-  pi-kimi:
-    harness: pi
-    pi:
-      provider: openrouter
-defaultAgentRuntime: default
+# tradeoff of offloading the eval lane while keeping planning/implementation/
+# review on claude-sdk + Opus/Sonnet.
+#
+# Note: previously this profile offloaded only the `evaluator` role via a
+# per-role override. The new schema does not expose role-level harness/model
+# overrides, so the entire evaluation tier moves together.
 agents:
-  models:
-    max:
-      id: claude-opus-4-7
-    balanced:
-      id: claude-sonnet-4-6
   tiers:
     planning:
+      harness: claude-sdk
+      model: claude-opus-4-7
       effort: high
-      modelClass: max
     implementation:
+      harness: claude-sdk
+      model: claude-sonnet-4-6
       effort: medium
-      modelClass: balanced
     review:
+      harness: claude-sdk
+      model: claude-opus-4-7
       effort: high
-      modelClass: max
     evaluation:
+      harness: pi
+      pi:
+        provider: openrouter
+      model: moonshotai/kimi-k2.6
       effort: high
-      modelClass: max
-  roles:
-    evaluator:
-      agentRuntime: pi-kimi
-      model:
-        id: moonshotai/kimi-k2.6

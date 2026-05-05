@@ -2,26 +2,21 @@
 # and evaluation tiers run at `xhigh` effort. Pair with `claude-sdk-opus` to
 # measure the cost/quality impact of harder-thinking review/eval without
 # changing the build path.
-agentRuntimes:
-  default:
-    harness: claude-sdk
-defaultAgentRuntime: default
 agents:
-  models:
-    max:
-      id: claude-opus-4-7
-    balanced:
-      id: claude-sonnet-4-6
   tiers:
     planning:
+      harness: claude-sdk
+      model: claude-opus-4-7
       effort: high
-      modelClass: max
     implementation:
+      harness: claude-sdk
+      model: claude-sonnet-4-6
       effort: medium
-      modelClass: balanced
     review:
+      harness: claude-sdk
+      model: claude-opus-4-7
       effort: xhigh
-      modelClass: max
     evaluation:
+      harness: claude-sdk
+      model: claude-opus-4-7
       effort: xhigh
-      modelClass: max

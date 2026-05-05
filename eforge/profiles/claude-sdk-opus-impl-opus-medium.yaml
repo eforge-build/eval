@@ -1,28 +1,23 @@
 # Implementation-tier model probe. Identical to claude-sdk-opus.yaml except
-# the implementation tier uses the max model class (Opus) instead of balanced
-# (Sonnet) at the same medium effort. Pair with claude-sdk-opus to attribute
-# the marginal cost and quality contribution of using Opus on the build path
-# — the only leaf diff is agents.tiers.implementation.modelClass.
-agentRuntimes:
-  default:
-    harness: claude-sdk
-defaultAgentRuntime: default
+# the implementation tier uses Opus instead of Sonnet at the same medium
+# effort. Pair with claude-sdk-opus to attribute the marginal cost and quality
+# contribution of using Opus on the build path — the only leaf diff is
+# agents.tiers.implementation.model.
 agents:
-  models:
-    max:
-      id: claude-opus-4-7
-    balanced:
-      id: claude-sonnet-4-6
   tiers:
     planning:
+      harness: claude-sdk
+      model: claude-opus-4-7
       effort: high
-      modelClass: max
     implementation:
+      harness: claude-sdk
+      model: claude-opus-4-7
       effort: medium
-      modelClass: max
     review:
+      harness: claude-sdk
+      model: claude-opus-4-7
       effort: high
-      modelClass: max
     evaluation:
+      harness: claude-sdk
+      model: claude-opus-4-7
       effort: high
-      modelClass: max

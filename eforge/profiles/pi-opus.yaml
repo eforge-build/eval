@@ -1,28 +1,29 @@
 # Same models and tiers as `claude-sdk-opus.yaml`, but routed through the Pi
 # harness via the anthropic provider. Pair with `claude-sdk-opus` to isolate
 # the harness implementation while holding the model constant.
-agentRuntimes:
-  default:
-    harness: pi
-    pi:
-      provider: anthropic
-defaultAgentRuntime: default
 agents:
-  models:
-    max:
-      id: claude-opus-4-7
-    balanced:
-      id: claude-sonnet-4-6
   tiers:
     planning:
+      harness: pi
+      pi:
+        provider: anthropic
+      model: claude-opus-4-7
       effort: high
-      modelClass: max
     implementation:
+      harness: pi
+      pi:
+        provider: anthropic
+      model: claude-sonnet-4-6
       effort: medium
-      modelClass: balanced
     review:
+      harness: pi
+      pi:
+        provider: anthropic
+      model: claude-opus-4-7
       effort: high
-      modelClass: max
     evaluation:
+      harness: pi
+      pi:
+        provider: anthropic
+      model: claude-opus-4-7
       effort: high
-      modelClass: max

@@ -1,30 +1,31 @@
 # Frontier non-Western open-weights lane via Pi's openrouter provider, model
-# `moonshotai/kimi-k2.6`. Kimi K2.6 across both `max` and `balanced` since
-# OpenRouter doesn't ship a clean smaller sibling — homogenizing the model is
-# the cleanest cross-family signal. Pair with `pi-opus` and `pi-gpt` to compare
-# Anthropic vs OpenAI vs Moonshot on identical Pi harness.
-agentRuntimes:
-  default:
-    harness: pi
-    pi:
-      provider: openrouter
-defaultAgentRuntime: default
+# `moonshotai/kimi-k2.6`. Kimi K2.6 across every tier since OpenRouter doesn't
+# ship a clean smaller sibling — homogenizing the model is the cleanest
+# cross-family signal. Pair with `pi-opus` and `pi-gpt` to compare Anthropic
+# vs OpenAI vs Moonshot on identical Pi harness.
 agents:
-  models:
-    max:
-      id: moonshotai/kimi-k2.6
-    balanced:
-      id: moonshotai/kimi-k2.6
   tiers:
     planning:
+      harness: pi
+      pi:
+        provider: openrouter
+      model: moonshotai/kimi-k2.6
       effort: high
-      modelClass: max
     implementation:
+      harness: pi
+      pi:
+        provider: openrouter
+      model: moonshotai/kimi-k2.6
       effort: medium
-      modelClass: balanced
     review:
+      harness: pi
+      pi:
+        provider: openrouter
+      model: moonshotai/kimi-k2.6
       effort: high
-      modelClass: max
     evaluation:
+      harness: pi
+      pi:
+        provider: openrouter
+      model: moonshotai/kimi-k2.6
       effort: high
-      modelClass: max

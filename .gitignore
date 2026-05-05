@@ -4,3 +4,4 @@ node_modules/
 .schaake-os-track
 .env
 env/
+.pi/eval-runs/

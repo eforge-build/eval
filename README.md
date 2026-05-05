@@ -16,6 +16,19 @@ pnpm install
 
 ## Usage
 
+### Pi extension
+
+This repo includes a project-local pi extension in [`.pi/extensions/eforge-eval/`](./.pi/extensions/eforge-eval/). It is auto-discovered by pi when you open pi from the eval repo; run `/reload` if pi is already open.
+
+Useful commands:
+
+- `/eval` — menu for running evals and browsing results
+- `/eval-run` — interactive run wizard with profile/scenario multi-select plus repeat count, quality, dry-run, compare, and env-file options; or pass CLI-like args such as `/eval-run --profile claude-sdk-opus --repeat 3 --skip-quality todo-api-errand-health-check`
+- `/eval-status` — active/latest run status
+- `/eval-runs` — pick a completed run and render `summary.json` in pi
+- `/eval-result` — pick a scenario and render its `result.json` highlights
+- `/eval-compare` — render `comparison.json` highlights
+
 `--profile` is required and names one or more profiles from [`eforge/profiles/`](./eforge/profiles/). Comma-separated profiles run in parallel per scenario.
 
 ```bash
