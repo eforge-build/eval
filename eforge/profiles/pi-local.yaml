@@ -1,0 +1,26 @@
+agents:
+  tiers:
+    planning:
+      harness: pi
+      pi:
+        provider: llama-cpp
+      model: qwen-27b
+      effort: high
+    implementation:
+      harness: pi
+      pi:
+        provider: llama-cpp
+      model: qwen-27b
+      effort: medium
+    review:
+      harness: pi
+      pi:
+        provider: llama-cpp
+      model: qwen-27b
+      effort: high
+    evaluation:
+      harness: pi
+      pi:
+        provider: llama-cpp
+      model: qwen-27b
+      effort: high
