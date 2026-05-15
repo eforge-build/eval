@@ -3,7 +3,7 @@
 // Usage: npx tsx lib/runner.ts [OPTIONS] SCENARIO_ID [SCENARIO_ID...]
 //        npx tsx lib/runner.ts --all [OPTIONS]
 
-import { execSync, spawn } from 'child_process';
+import { execSync, spawn, type ChildProcess } from 'child_process';
 import {
   existsSync,
   readFileSync,
@@ -33,6 +33,7 @@ const SCENARIOS_FILE = join(SCRIPT_DIR, 'scenarios.yaml');
 const PROFILES_DIR = join(SCRIPT_DIR, 'eforge', 'profiles');
 const PROFILE_ENVS_FILE = join(SCRIPT_DIR, 'profile-envs.yaml');
 const MAX_RUNS = 50;
+const MONITOR_SHUTDOWN_TIMEOUT_MS = 5000;
 
 // --- ANSI colors ---
 
@@ -274,30 +275,93 @@ function groupByCompareGroup(expanded: ExpandedScenario[]): ScenarioGroup[] {
 
 // --- Monitor ---
 
-async function startMonitor(eforgeBin: string): Promise<string | undefined> {
+interface EvalMonitor {
+  url: string | undefined;
+  stop(): Promise<void>;
+}
+
+let activeEvalMonitor: EvalMonitor | undefined;
+let cleanupHandlersInstalled = false;
+
+async function stopChildProcess(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+
+  await new Promise<void>((resolveStop) => {
+    const timer = setTimeout(() => {
+      try { child.kill('SIGKILL'); } catch {}
+      resolveStop();
+    }, MONITOR_SHUTDOWN_TIMEOUT_MS);
+    timer.unref();
+
+    child.once('close', () => {
+      clearTimeout(timer);
+      resolveStop();
+    });
+
+    try { child.kill('SIGTERM'); } catch {
+      clearTimeout(timer);
+      resolveStop();
+    }
+  });
+}
+
+async function cleanupActiveEvalMonitor(): Promise<void> {
+  const monitor = activeEvalMonitor;
+  activeEvalMonitor = undefined;
+  if (!monitor) return;
+  await monitor.stop();
+}
+
+function installMonitorCleanupHandlers(): void {
+  if (cleanupHandlersInstalled) return;
+  cleanupHandlersInstalled = true;
+
+  const shutdown = (exitCode: number) => {
+    void cleanupActiveEvalMonitor().finally(() => process.exit(exitCode));
+  };
+
+  process.once('SIGINT', () => shutdown(130));
+  process.once('SIGTERM', () => shutdown(143));
+  process.once('SIGHUP', () => shutdown(129));
+}
+
+async function startMonitor(eforgeBin: string): Promise<EvalMonitor | undefined> {
+  let child: ChildProcess | undefined;
   try {
     // Run monitor from RESULTS_DIR so its daemon.lock lives at results/.eforge/,
     // isolated from any user-level daemon that may be running in the eval root
     // (e.g., auto-started by the eforge MCP server when /eforge:build is invoked).
-    const child = spawn(eforgeBin, ['monitor'], {
+    //
+    // Important: keep the child attached to this runner and stop it at the end.
+    // `eforge monitor` is an interactive long-lived wrapper around the detached
+    // monitor server; detaching *that wrapper* leaves orphaned `eforge` processes
+    // after every eval run.
+    child = spawn(eforgeBin, ['monitor'], {
       cwd: RESULTS_DIR,
-      detached: true,
       stdio: 'ignore',
     });
-    child.unref();
 
     // Give monitor a moment to write its lock file
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
+    let url: string | undefined;
     const lockPath = join(RESULTS_DIR, '.eforge', 'daemon.lock');
     if (existsSync(lockPath)) {
       const lock = JSON.parse(readFileSync(lockPath, 'utf8'));
       if (typeof lock.port === 'number') {
-        return `http://localhost:${lock.port}`;
+        url = `http://localhost:${lock.port}`;
       }
     }
+
+    return {
+      url,
+      stop: async () => {
+        if (child) await stopChildProcess(child);
+      },
+    };
   } catch {
-    // Monitor failed to start — non-fatal
+    // Monitor failed to start — non-fatal, but don't leave a wrapper alive.
+    if (child) await stopChildProcess(child);
   }
   return undefined;
 }
@@ -1113,7 +1177,12 @@ async function main(): Promise<void> {
   // Start monitor
   let monitorUrl: string | undefined;
   if (!args.dryRun) {
-    monitorUrl = await startMonitor(eforgeBin);
+    installMonitorCleanupHandlers();
+    const monitor = await startMonitor(eforgeBin);
+    if (monitor) {
+      activeEvalMonitor = monitor;
+      monitorUrl = monitor.url;
+    }
   }
 
   console.log('Eforge Eval Run');
@@ -1240,9 +1309,12 @@ async function main(): Promise<void> {
     const baselineSummary = join(RESULTS_DIR, args.compareTimestamp, 'summary.json');
     printBaselineComparison(summaryFile, baselineSummary);
   }
+
+  await cleanupActiveEvalMonitor();
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   console.error(err);
+  await cleanupActiveEvalMonitor();
   process.exit(1);
 });
