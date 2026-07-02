@@ -40,11 +40,11 @@ interface ComparisonReport {
 type Criterion = 'costPerQuality' | 'cost' | 'quality';
 
 interface TierConfig {
-  runtime: string;
   harness: string;
+  provider?: string;
   effort: string;
-  modelClass: string;
   model: string;
+  toolbelt?: string;
 }
 
 interface DecomposedConfig {
@@ -80,11 +80,11 @@ interface PreferencesManifest {
   costFrontier: Record<string, CostFrontierEntry[]>;
 }
 
-const TIER_DEFAULTS: Record<string, { effort: string; modelClass: string }> = {
-  planning: { effort: 'high', modelClass: 'max' },
-  implementation: { effort: 'medium', modelClass: 'balanced' },
-  review: { effort: 'high', modelClass: 'max' },
-  evaluation: { effort: 'high', modelClass: 'max' },
+const TIER_DEFAULTS: Record<string, { effort: string }> = {
+  planning: { effort: 'high' },
+  implementation: { effort: 'medium' },
+  review: { effort: 'high' },
+  evaluation: { effort: 'high' },
 };
 
 function pickWinner(
@@ -126,24 +126,24 @@ function readProfileConfig(profileName: string): Record<string, unknown> {
 }
 
 function decomposeProfile(config: Record<string, unknown>): DecomposedConfig {
-  const defaultRuntime = (config.defaultAgentRuntime as string | undefined) ?? 'default';
-  const runtimes = (config.agentRuntimes ?? {}) as Record<string, { harness?: string }>;
   const agents = (config.agents ?? {}) as Record<string, unknown>;
   const tiersConfig = (agents.tiers ?? {}) as Record<
     string,
-    { effort?: string; modelClass?: string; model?: { id?: string } }
+    { harness?: string; effort?: string; model?: string; pi?: { provider?: string }; toolbelt?: string }
   >;
-  const modelsConfig = (agents.models ?? {}) as Record<string, { id?: string }>;
 
   const tierResult: Record<string, TierConfig> = {};
   for (const tier of ['planning', 'implementation', 'review', 'evaluation']) {
     const tCfg = tiersConfig[tier] ?? {};
     const defaults = TIER_DEFAULTS[tier];
-    const effort = tCfg.effort ?? defaults.effort;
-    const modelClass = tCfg.modelClass ?? defaults.modelClass;
-    const model = tCfg.model?.id ?? modelsConfig[modelClass]?.id ?? 'unknown';
-    const harness = runtimes[defaultRuntime]?.harness ?? 'unknown';
-    tierResult[tier] = { runtime: defaultRuntime, harness, effort, modelClass, model };
+    const entry: TierConfig = {
+      harness: tCfg.harness ?? 'unknown',
+      ...(tCfg.pi?.provider ? { provider: tCfg.pi.provider } : {}),
+      effort: tCfg.effort ?? defaults.effort,
+      model: tCfg.model ?? 'unknown',
+      ...(tCfg.toolbelt ? { toolbelt: tCfg.toolbelt } : {}),
+    };
+    tierResult[tier] = entry;
   }
   return tierResult as unknown as DecomposedConfig;
 }

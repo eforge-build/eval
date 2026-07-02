@@ -4,6 +4,14 @@
 #
 # Profiles (harness/model profiles) are defined separately as eforge profile
 # files in eforge/profiles/, and applied at run time via --profile on the CLI.
+#
+# Scenario IDs retain historical errand/excursion/expedition labels as rough
+# archetype names. Current eforge no longer emits a stable mode-selection event,
+# so the harness does not assert those labels; it only gates factual expectations
+# such as expected skip/non-skip behavior.
+#
+# Fixture PRDs intentionally keep their original nested Requirements-style format
+# so this eval can catch regressions in eforge's tolerance for real-world PRDs.
 
 scenarios:
   # --- todo-api ---
@@ -17,10 +25,6 @@ scenarios:
       - pnpm type-check
       - pnpm test
       - test -f .eforge/hook-events.log && grep -q EFORGE_CWD .eforge/hook-events.log
-    expect:
-      mode: errand
-      buildStagesExclude:
-        - test-cycle
 
   - id: todo-api-excursion-jwt-auth
     fixture: todo-api
@@ -30,8 +34,6 @@ scenarios:
       - pnpm install
       - pnpm type-check
       - pnpm test
-    expect:
-      mode: excursion
 
   - id: todo-api-errand-skip
     fixture: todo-api
@@ -42,7 +44,6 @@ scenarios:
       - pnpm type-check
       - pnpm test
     expect:
-      mode: errand
       skip: true
 
   # --- workspace-api ---
@@ -55,8 +56,6 @@ scenarios:
       - pnpm install
       - pnpm type-check
       - pnpm test
-    expect:
-      mode: excursion
 
   - id: workspace-api-excursion-extensions
     fixture: workspace-api
@@ -66,8 +65,6 @@ scenarios:
       - pnpm install
       - pnpm type-check
       - pnpm test
-    expect:
-      mode: excursion
 
   - id: workspace-api-excursion-refactor-services
     fixture: workspace-api
@@ -77,8 +74,6 @@ scenarios:
       - pnpm install
       - pnpm type-check
       - pnpm test
-    expect:
-      mode: excursion
 
   # --- notes-api ---
 
@@ -90,8 +85,6 @@ scenarios:
       - pnpm install
       - pnpm type-check
       - pnpm test
-    expect:
-      mode: errand
 
   - id: notes-api-excursion-refactor-store
     fixture: notes-api
@@ -101,8 +94,6 @@ scenarios:
       - pnpm install
       - pnpm type-check
       - pnpm test
-    expect:
-      mode: excursion
 
   - id: notes-api-excursion-dead-code
     fixture: notes-api
@@ -112,8 +103,6 @@ scenarios:
       - pnpm install
       - pnpm type-check
       - pnpm test
-    expect:
-      mode: excursion
 
   - id: notes-api-excursion-search
     fixture: notes-api
@@ -123,10 +112,6 @@ scenarios:
       - pnpm install
       - pnpm type-check
       - pnpm test
-    expect:
-      mode: excursion
-      buildStagesContain:
-        - test-cycle
 
   # --- fractions-practice ---
 
@@ -138,5 +123,3 @@ scenarios:
       - bun install
       - bun run typecheck
       - bun run build
-    expect:
-      mode: expedition

@@ -39,7 +39,7 @@ Useful commands:
 ./run.sh --profile claude-sdk-opus --all --env-file .env                         # With extra env vars (e.g. Langfuse creds)
 ./run.sh --profile claude-sdk-opus --all --repeat 3                              # Run each scenario 3 times, aggregate pass rate
 ./run.sh --profile claude-sdk-opus --all --compare 2026-04-15T12-00-00           # Diff against a prior run
-./run.sh --profile claude-sdk-opus --dry-run todo-api-errand-health-check        # Set up workspace only, skip eforge
+./run.sh --profile claude-sdk-opus --dry-run todo-api-errand-health-check        # Set up workspace + validate config, skip eforge build
 ./run.sh --profile claude-sdk-opus,pi-opus --skip-quality --all                  # Skip LLM-as-judge quality scoring (default: enabled)
 ./run.sh --cleanup                                                      # Remove all results
 ./open-monitor.sh                                                       # Open monitor UI over the shared DB
@@ -80,28 +80,29 @@ Pi-backed profiles authenticate in one of two ways:
 - **API-key providers** (e.g. anthropic, openrouter) read credentials from environment variables. Declare a per-profile env file in [`profile-envs.yaml`](./profile-envs.yaml) if needed — see [`env/pi.env`](./env/pi.env) for the OpenRouter-style template.
 - **OAuth providers** (e.g. openai-codex used by `pi-gpt`) rely on cached credentials at `~/.pi/agent/auth.json`. Run `pi login` once in your user environment before evaluating.
 
-In profile files, provider/model live under `agents.models.<class>` (usually `max`). There is no `pi.provider` or `pi.model` key — those are not part of eforge's Pi config schema.
+In current profile files, provider/model live in each tier recipe under `agents.tiers.<tier>`; Pi-backed tiers use `pi.provider` plus `model`, while Claude SDK tiers use `harness: claude-sdk` plus `model`.
 
 ### Mixed-runtime profile
 
-`mixed-opus-planner-pi-builder.yaml` exercises the `agentRuntimes` map: planning, review, and evaluation tiers run on claude-sdk + opus-4-7, while the `builder` role is offloaded to a local mlx-lm Qwen model via Pi. Run a smoke test comparing it with the single-runtime `claude-sdk-opus` baseline:
+`mixed-opus-kimi-evaluator.yaml` keeps planning, implementation, and review on the Claude SDK baseline while offloading the evaluation tier to Pi + OpenRouter/Kimi. Run a smoke test comparing it with the single-runtime `claude-sdk-opus` baseline:
 
 ```bash
-./run.sh --profile claude-sdk-opus,mixed-opus-planner-pi-builder todo-api-errand-health-check
+./run.sh --profile claude-sdk-opus,mixed-opus-kimi-evaluator todo-api-errand-health-check
 ```
 
-Requires the local mlx-lm server to be reachable; no API key needed.
+Requires OpenRouter credentials via the profile env mapping in [`profile-envs.yaml`](./profile-envs.yaml).
 
 ## How it works
 
 1. Each scenario copies a fixture to a temp directory in `/tmp/` and initializes a fresh git repo.
 2. The selected profile is copied into the workspace as `eforge/profiles/<name>.yaml`, and `eforge/.active-profile` is written with the profile name — pinning step 1 of eforge's profile precedence.
-3. Runs `eforge run <prd> --auto --verbose --foreground --no-monitor` from the workspace.
-4. Events are recorded to a shared SQLite DB (`results/monitor.db`) via `EFORGE_MONITOR_DB`.
-5. Validation commands run against the workspace (type-check, tests, etc.).
-6. Results are aggregated into `results/<timestamp>/summary.json`.
+3. Runs `eforge config validate` in the workspace to catch fixture/profile schema drift before spending tokens.
+4. Runs `eforge run <prd> --auto --verbose --foreground --no-monitor` from the workspace.
+5. Events are recorded to a shared SQLite DB (`results/monitor.db`) via `EFORGE_MONITOR_DB`.
+6. Validation commands run against the workspace (type-check, tests, etc.).
+7. Results are aggregated into `results/<timestamp>/summary.json`.
 
-A monitor server starts from the eval repo root, providing a stable web UI for observing runs. Individual eforge runs use `--no-monitor` (foreground mode, writing directly to the shared DB). When multiple profiles are requested for the same scenario, they execute concurrently; scenarios themselves run sequentially.
+A monitor server starts with the eval results directory as its working directory, providing an isolated web UI for observing runs. Individual eforge runs use `--no-monitor` (foreground mode, writing directly to the shared DB). When multiple profiles are requested for the same scenario, they execute concurrently; scenarios themselves run sequentially.
 
 ## Adding scenarios
 
@@ -118,14 +119,14 @@ scenarios:
       - pnpm type-check
       - pnpm test
     expect:                    # Optional
-      mode: errand
-      buildStagesContain: [implement]
       # skip: true             # Opt in when the PRD is expected to be already satisfied
 ```
 
 Create the fixture under `fixtures/my-fixture/` with source code and the PRD file.
 
-Expectation checks are recorded on `result.json` under `expectations.checks`. `mode` and build-stage checks are informational (judgment calls). The `skip` check is a **gating** expectation: a mismatch fails the scenario. Scenarios that set `expect.mode` or declare non-empty `validate` steps implicitly expect `skip: false`; the synthesized check is tagged `implicit: true` on `result.json` so you can tell it apart from an explicit `expect.skip`.
+Fixture PRDs intentionally preserve real-world/nested Requirements-style inputs rather than being rewritten into canonical `## Acceptance Criteria` fixtures. That makes the suite useful for testing eforge's tolerance for brittle or non-canonical PRD shapes.
+
+Expectation checks are recorded on `result.json` under `expectations.checks`. The `skip` check is a **gating** expectation: a mismatch fails the scenario. Scenarios that declare non-empty `validate` steps implicitly expect `skip: false`; the synthesized check is tagged `implicit: true` on `result.json` so you can tell it apart from an explicit `expect.skip`. Historical `errand`/`excursion`/`expedition` labels remain in some scenario IDs as archetype names only; current eforge does not emit a stable mode-selection event for the harness to assert.
 
 ## Adding profiles
 
@@ -133,15 +134,32 @@ Profiles describe **how to build** — harness, models, optional env file. They 
 
 ```yaml
 # eforge/profiles/my-profile.yaml
-agentRuntimes:
-  default:
-    harness: pi               # or: claude-sdk
-defaultAgentRuntime: default
 agents:
-  models:
-    max:
-      provider: openrouter    # provider keys are harness-specific
-      id: some-model-id
+  tiers:
+    planning:
+      harness: pi             # or: claude-sdk
+      pi:
+        provider: openrouter
+      model: some-planning-model
+      effort: high
+    implementation:
+      harness: pi
+      pi:
+        provider: openrouter
+      model: some-implementation-model
+      effort: medium
+    review:
+      harness: pi
+      pi:
+        provider: openrouter
+      model: some-review-model
+      effort: high
+    evaluation:
+      harness: pi
+      pi:
+        provider: openrouter
+      model: some-evaluation-model
+      effort: high
 ```
 
 The filename (minus `.yaml`) becomes the profile name and is used as the `<scenario-id>--<profile>` suffix on expanded scenario IDs. Profiles of the same base scenario auto-group for side-by-side comparison — no extra field required.

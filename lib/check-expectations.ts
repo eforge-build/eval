@@ -32,7 +32,10 @@ export interface CheckExpectOpts {
 }
 
 interface PipelineEvent {
-  scope: string;
+  // Historical eforge versions emitted errand/excursion/expedition here. Current
+  // eforge no longer exposes a stable mode-selection signal, so mode checks are
+  // ignored unless this field is actually present.
+  scope?: string;
   defaultBuild: Array<string | string[]>;
 }
 
@@ -142,9 +145,9 @@ export function checkExpectations(opts: CheckExpectOpts): ExpectationsResult {
   const checks: ExpectationCheck[] = [];
   const pipeline = readPipelineEvent(monitorDbPath, runIds);
 
-  // Check mode
-  if (expectConfig.mode !== undefined) {
-    const actualMode = pipeline?.scope ?? null;
+  // Check historical mode only when the event still exposes a mode/scope field.
+  if (expectConfig.mode !== undefined && pipeline?.scope !== undefined) {
+    const actualMode = pipeline.scope;
     checks.push({
       check: 'mode',
       passed: actualMode === expectConfig.mode,

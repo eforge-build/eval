@@ -156,9 +156,9 @@ function detectCostEfficiency(results: ScenarioResult[]): Observation[] {
 }
 
 /**
- * Profile Selection Detector
+ * Expectation Mismatch Detector
  *
- * Flags expectation mismatches where the mode check failed.
+ * Flags factual expectation mismatches, currently most importantly skip/non-skip.
  */
 function detectProfileSelection(results: ScenarioResult[]): Observation[] {
   const observations: Observation[] = [];

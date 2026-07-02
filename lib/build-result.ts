@@ -24,6 +24,16 @@ export interface BuildResultOpts {
   profile?: { name: string; config: Record<string, unknown>; envFiles?: string[] };
 }
 
+export interface WorkspaceRunFailure {
+  runId: string;
+  sessionId?: string;
+  command: string;
+  planSet: string;
+  startedAt: string;
+  completedAt?: string;
+  summary?: string;
+}
+
 /**
  * Resolve eforge run_ids associated with a given workspace by querying the
  * shared monitor DB. eforge spawns separate sessions per command (enqueue,
@@ -66,6 +76,67 @@ export function resolveRunIds(
   }
 }
 
+function summarizeFailureEvent(data: string): string | undefined {
+  try {
+    const parsed = JSON.parse(data) as Record<string, unknown>;
+    const result = parsed['result'] as Record<string, unknown> | undefined;
+    return stringValue(parsed['message'])
+      ?? stringValue(parsed['error'])
+      ?? stringValue(parsed['reason'])
+      ?? stringValue(result?.['summary'])
+      ?? stringValue(result?.['status']);
+  } catch {
+    return undefined;
+  }
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
+}
+
+export function resolveWorkspaceRunFailures(dbPath: string, workspace: string): WorkspaceRunFailure[] {
+  if (!existsSync(dbPath)) return [];
+
+  let db: DatabaseSync;
+  try {
+    db = new DatabaseSync(dbPath, { readOnly: true });
+  } catch {
+    return [];
+  }
+
+  try {
+    const tableCheck = db.prepare(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='runs'`,
+    ).get() as unknown as { name: string } | undefined;
+    if (!tableCheck) return [];
+
+    const rows = db.prepare(
+      `SELECT id, session_id, plan_set, command, started_at, completed_at FROM runs WHERE cwd = ? AND status = 'failed' ORDER BY started_at`,
+    ).all(workspace) as unknown as Array<{ id: string; session_id: string | null; plan_set: string; command: string; started_at: string; completed_at: string | null }>;
+
+    const summaryStmt = db.prepare(
+      `SELECT data FROM events WHERE run_id = ? AND type IN ('planning:error', 'phase:end', 'plan:build:failed', 'build:terminal-failure', 'daemon:error') ORDER BY id DESC LIMIT 1`,
+    );
+
+    return rows.map((row) => {
+      const eventRow = summaryStmt.get(row.id) as unknown as { data: string } | undefined;
+      return {
+        runId: row.id,
+        ...(row.session_id ? { sessionId: row.session_id } : {}),
+        command: row.command,
+        planSet: row.plan_set,
+        startedAt: row.started_at,
+        ...(row.completed_at ? { completedAt: row.completed_at } : {}),
+        ...(eventRow ? { summary: summarizeFailureEvent(eventRow.data) } : {}),
+      };
+    });
+  } catch {
+    return [];
+  } finally {
+    db.close();
+  }
+}
+
 function extractMetrics(dbPath: string, runIds: string[]): ScenarioMetrics | undefined {
   if (runIds.length === 0) return undefined;
   if (!existsSync(dbPath)) return undefined;
@@ -86,10 +157,11 @@ function extractMetrics(dbPath: string, runIds: string[]): ScenarioMetrics | und
       `SELECT name FROM sqlite_master WHERE type='table' AND name='events'`
     ).get() as unknown as { name: string } | undefined;
     if (!tableCheck) return undefined;
-    // Extract profile from plan:profile event
+    // Extract resolved profile from current session:profile events, with the
+    // historical plan:profile name kept for older result DBs.
     let profile: string | undefined;
     const profileStmt = db.prepare(
-      `SELECT data FROM events WHERE type = 'plan:profile' ${runFilter} LIMIT 1`
+      `SELECT data FROM events WHERE type IN ('session:profile', 'plan:profile') ${runFilter} LIMIT 1`
     );
     const profileRows = profileStmt.all(...runIds) as unknown as Array<{ data: string }>;
     if (profileRows.length > 0) {
@@ -199,12 +271,13 @@ function extractMetrics(dbPath: string, runIds: string[]): ScenarioMetrics | und
       }
     }
 
-    // Extract review issues from build:review:complete events
+    // Extract review issues from current plan:build:* events, with historical
+    // build:* event names kept for older result DBs.
     let issueCount = 0;
     const bySeverity: Record<string, number> = {};
     const reviewIssues: Array<ReviewIssueDetail> = [];
     const reviewCompleteStmt = db.prepare(
-      `SELECT data FROM events WHERE type = 'build:review:complete' ${runFilter}`
+      `SELECT data FROM events WHERE type IN ('plan:build:review:complete', 'plan:build:review:parallel:perspective:complete', 'build:review:complete') ${runFilter}`
     );
     const reviewCompleteRows = reviewCompleteStmt.all(...runIds) as unknown as Array<{ data: string }>;
 
@@ -227,12 +300,13 @@ function extractMetrics(dbPath: string, runIds: string[]): ScenarioMetrics | und
       } catch { /* ignore */ }
     }
 
-    // Extract accepted/rejected from build:evaluate:complete events
+    // Extract accepted/rejected from current plan:build:evaluate:complete events,
+    // with the historical build:evaluate:complete name kept for older result DBs.
     let accepted = 0;
     let rejected = 0;
     const evaluationVerdicts: Array<EvaluationVerdict> = [];
     const evaluateCompleteStmt = db.prepare(
-      `SELECT data FROM events WHERE type = 'build:evaluate:complete' ${runFilter}`
+      `SELECT data FROM events WHERE type IN ('plan:build:evaluate:complete', 'build:evaluate:complete') ${runFilter}`
     );
     const evaluateCompleteRows = evaluateCompleteStmt.all(...runIds) as unknown as Array<{ data: string }>;
 

@@ -3,11 +3,12 @@
 // Usage: npx tsx lib/runner.ts [OPTIONS] SCENARIO_ID [SCENARIO_ID...]
 //        npx tsx lib/runner.ts --all [OPTIONS]
 
-import { execSync, spawn, type ChildProcess } from 'child_process';
+import { execSync, spawn, spawnSync, type ChildProcess } from 'child_process';
 import {
   existsSync,
   readFileSync,
   writeFileSync,
+  appendFileSync,
   mkdirSync,
   readdirSync,
   rmSync,
@@ -19,7 +20,7 @@ import { tmpdir } from 'os';
 import { mkdtempSync, realpathSync } from 'fs';
 import { parse as parseYaml } from 'yaml';
 import { loadScenarios, loadProfiles, expandScenarioProfiles, deriveGroupId } from './scenarios.js';
-import { buildResult, type BuildResultOpts } from './build-result.js';
+import { buildResult, resolveWorkspaceRunFailures, type BuildResultOpts, type WorkspaceRunFailure } from './build-result.js';
 import { checkExpectations, type ExpectConfig } from './check-expectations.js';
 import type { ExpandedScenario, ExpectationCheck, ScenarioResult } from './types.js';
 import { scoreAbsolute, mergeQualityIntoResult, loadJudgeConfig } from './score-quality.js';
@@ -133,7 +134,7 @@ for each scenario.
 Options:
   --profile LIST         Comma-separated profile names to run (required, e.g. claude-sdk-opus,pi-opus)
   --all                  Run all scenarios
-  --dry-run              Set up workspaces but skip eforge and validation
+  --dry-run              Set up workspaces and validate config, but skip eforge build and validation
   --env-file FILE        Source environment variables (e.g. Langfuse credentials)
   --repeat N             Run each scenario N times (default: 1)
   --compare <timestamp>  Compare results against a previous run
@@ -452,7 +453,42 @@ function runValidations(workspace: string, commands: string[], scenarioDir: stri
   return results;
 }
 
+// --- Workspace config validation ---
+
+function validateWorkspaceConfig(eforgeBin: string, workspace: string): { ok: boolean; output: string } {
+  const result = spawnSync(eforgeBin, ['config', 'validate'], {
+    cwd: workspace,
+    env: process.env,
+    encoding: 'utf8',
+  });
+
+  const output = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
+  if (result.error) {
+    return { ok: false, output: result.error.message };
+  }
+  return { ok: result.status === 0, output };
+}
+
 // --- Spawn eforge with prefixed output ---
+
+function formatWorkspaceRunFailures(failures: WorkspaceRunFailure[]): string {
+  return failures.map((failure) => {
+    const summary = failure.summary ? `: ${failure.summary}` : '';
+    return `${failure.command} ${failure.runId} failed${summary}`;
+  }).join('\n');
+}
+
+function workspaceDiffSinceInitialCommit(workspace: string): string {
+  const baseline = execSync('git rev-list --max-parents=0 HEAD', {
+    cwd: workspace,
+    encoding: 'utf8',
+  }).trim();
+  return execSync(`git diff ${baseline}..HEAD`, {
+    cwd: workspace,
+    encoding: 'utf8',
+    maxBuffer: 50 * 1024 * 1024,
+  });
+}
 
 function spawnEforge(
   eforgeBin: string,
@@ -561,7 +597,19 @@ async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
   });
   execSync(`git checkout --quiet -b "eval/${expanded.id}"`, { cwd: workspace, stdio: 'pipe' });
 
-  // Step 3: Build environment for eforge
+  // Step 3: Validate the resolved workspace config before spending tokens.
+  log('  Validating eforge config...');
+  const configValidation = validateWorkspaceConfig(eforgeBin, workspace);
+  if (!configValidation.ok) {
+    const output = configValidation.output || 'eforge config validate failed with no output';
+    writeFileSync(join(scenarioDir, 'config-validate.log'), output + '\n');
+    log(`  ${RED}ERROR${RESET}: eforge config validation failed (see config-validate.log)`);
+    writeErrorResult(scenarioDir, expanded.id, eforgeVersion, eforgeCommit, eforgeDirty, startTime, `eforge config validation failed: ${output}`);
+    cleanupWorkspace(workspace);
+    return { scenario: expanded.id, passed: false };
+  }
+
+  // Step 4: Build environment for eforge
   const envOverrides: Record<string, string> = { ...globalEnvVars };
   envOverrides['EFORGE_MONITOR_DB'] = monitorDbPath;
   envOverrides['EFORGE_TRACE_TAGS'] = `eval,${expanded.id}`;
@@ -579,7 +627,7 @@ async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
     Object.assign(envOverrides, loadEnvFile(envFilePath));
   }
 
-  // Step 4: Run eforge
+  // Step 5: Run eforge
   let eforgeExit = 0;
   const logFile = join(scenarioDir, 'eforge.log');
 
@@ -592,12 +640,40 @@ async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
   }
 
   if (eforgeExit === 0) {
+    const runFailures = resolveWorkspaceRunFailures(monitorDbPath, workspace);
+    if (runFailures.length > 0) {
+      eforgeExit = 1;
+      const failureSummary = formatWorkspaceRunFailures(runFailures);
+      writeFileSync(join(scenarioDir, 'monitor-failures.json'), JSON.stringify(runFailures, null, 2) + '\n');
+      appendFileSync(logFile, `\n[eval-harness] Monitor recorded failed eforge run(s):\n${failureSummary}\n`);
+      log(`  ${RED}Eforge FAILED according to monitor DB (${runFailures.length} failed run${runFailures.length === 1 ? '' : 's'}; see monitor-failures.json)${RESET}`);
+    }
+  }
+
+  if (eforgeExit === 0 && scenario.expect?.skip !== true) {
+    try {
+      const diffPatch = workspaceDiffSinceInitialCommit(workspace);
+      if (diffPatch.trim() === '') {
+        eforgeExit = 1;
+        const message = 'No implementation diff was produced for a scenario that expects real work.';
+        appendFileSync(logFile, `\n[eval-harness] ${message}\n`);
+        log(`  ${RED}Eforge FAILED: ${message}${RESET}`);
+      }
+    } catch (err) {
+      eforgeExit = 1;
+      const message = `Failed to verify implementation diff: ${err instanceof Error ? err.message : String(err)}`;
+      appendFileSync(logFile, `\n[eval-harness] ${message}\n`);
+      log(`  ${RED}Eforge FAILED: ${message}${RESET}`);
+    }
+  }
+
+  if (eforgeExit === 0) {
     log(`  ${GREEN}Eforge completed successfully.${RESET}`);
   } else {
     log(`  ${RED}Eforge FAILED (exit code: ${eforgeExit})${RESET}`);
   }
 
-  // Step 5: Run validation
+  // Step 6: Run validation
   let validation: ValidationResult = {};
   if (dryRun) {
     log('  [dry-run] Skipping validation');
@@ -609,7 +685,7 @@ async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
   const endTime = Date.now();
   const duration = Math.round((endTime - startTime) / 1000);
 
-  // Step 6: Build result.json (records the profile)
+  // Step 7: Build result.json (records the profile)
   const result = buildResult({
     outputFile: join(scenarioDir, 'result.json'),
     scenario: expanded.id,
@@ -666,18 +742,8 @@ async function runScenario(opts: ScenarioRunOpts): Promise<ScenarioRunResult> {
       const qualityDir = join(scenarioDir, 'quality');
       mkdirSync(qualityDir, { recursive: true });
 
-      // Resolve baseline commit (the initial fixture commit before eforge ran)
-      const baseline = execSync('git rev-list --max-parents=0 HEAD', {
-        cwd: workspace,
-        encoding: 'utf8',
-      }).trim();
-
-      // Capture diff since baseline
-      const diffPatch = execSync(`git diff ${baseline}..HEAD`, {
-        cwd: workspace,
-        encoding: 'utf8',
-        maxBuffer: 50 * 1024 * 1024,
-      });
+      // Capture diff since the initial fixture commit.
+      const diffPatch = workspaceDiffSinceInitialCommit(workspace);
 
       writeFileSync(join(qualityDir, 'diff.patch'), diffPatch);
       cpSync(join(workspace, scenario.prd), join(qualityDir, 'prd.md'));

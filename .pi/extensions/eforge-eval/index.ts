@@ -288,7 +288,7 @@ export default function eforgeEvalExtension(pi: ExtensionAPI) {
     }
 
     const skipQuality = await ctx.ui.confirm("Quality scoring", "Skip LLM-as-judge quality scoring for this run?");
-    const dryRun = await ctx.ui.confirm("Dry run", "Set up workspaces only and skip eforge/validation?");
+    const dryRun = await ctx.ui.confirm("Dry run", "Set up workspaces and validate config, but skip eforge build/validation?");
 
     let compare: string | undefined;
     let envFile: string | undefined;

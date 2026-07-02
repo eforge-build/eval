@@ -173,6 +173,7 @@ export interface ScenarioMeta {
   validate?: string[];
   description?: string;
   expect?: {
+    /** Historical eforge mode label; ignored unless the monitor DB exposes it. */
     mode?: string;
     buildStagesContain?: string[];
     buildStagesExclude?: string[];

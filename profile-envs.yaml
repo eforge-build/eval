@@ -8,7 +8,7 @@
 #   envFile: path                   (sugar for a single-element envFiles list)
 
 profiles:
-  mixed-kimi-planner-local-qwen-builder:
+  mixed-opus-kimi-evaluator:
     envFiles:
       - env/pi.env
   pi-kimi-k-2-6:

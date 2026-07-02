@@ -49,10 +49,10 @@ Each pair holds all but one variable constant so the comparison isolates that va
 
 | Tier | Roles |
 | --- | --- |
-| `planning` | planner, module-planner, formatter, pipeline-composer, merge-conflict-resolver, doc-updater, gap-closer |
-| `implementation` | builder, review-fixer, validation-fixer, test-writer, tester, recovery-analyst, dependency-detector, prd-validator, staleness-assessor |
-| `review` | reviewer, architecture-reviewer, cohesion-reviewer, plan-reviewer |
-| `evaluation` | evaluator, architecture-evaluator, cohesion-evaluator, plan-evaluator |
+| `planning` | planner, formatter, merge-conflict-resolver, gap-closer |
+| `implementation` | builder, doc-author, doc-syncer, review-fixer, validation-fixer, test-writer, tester, recovery-analyst, dependency-detector, prd-validator, staleness-assessor |
+| `review` | reviewer, plan-reviewer |
+| `evaluation` | evaluator, plan-evaluator |
 
 A user can reassign a single role via `agents.roles.<role>.tier`.
 
