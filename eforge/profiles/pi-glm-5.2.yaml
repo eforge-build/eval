@@ -1,0 +1,30 @@
+# Frontier OpenRouter Z.AI lane via Pi's openrouter provider. GLM 5.2 across
+# every tier since this eval profile is intended as a clean model-family signal.
+# Pair with `pi-opus`, `pi-gpt`, and `pi-kimi-k-2-6` for Pi-harness model
+# family comparisons.
+agents:
+  tiers:
+    planning:
+      harness: pi
+      pi:
+        provider: openrouter
+      model: z-ai/glm-5.2
+      effort: high
+    implementation:
+      harness: pi
+      pi:
+        provider: openrouter
+      model: z-ai/glm-5.2
+      effort: medium
+    review:
+      harness: pi
+      pi:
+        provider: openrouter
+      model: z-ai/glm-5.2
+      effort: high
+    evaluation:
+      harness: pi
+      pi:
+        provider: openrouter
+      model: z-ai/glm-5.2
+      effort: high

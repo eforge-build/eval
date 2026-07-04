@@ -12,6 +12,7 @@ All profiles use the **single-axis tier schema** (`agents.tiers.<tier>`). Each t
 | `pi-opus` | pi (anthropic) | `claude-opus-4-7` | `claude-sonnet-4-6` | `claude-opus-4-7` | `claude-opus-4-7` | Same models as `claude-sdk-opus`, different harness. |
 | `pi-gpt` | pi (openai-codex) | `gpt-5.5` | `gpt-5.5` | `gpt-5.5` | `gpt-5.5` | Frontier OpenAI lane. |
 | `pi-kimi-k-2-6` | pi (openrouter) | `moonshotai/kimi-k2.6` | `moonshotai/kimi-k2.6` | `moonshotai/kimi-k2.6` | `moonshotai/kimi-k2.6` | Open-weights lane (Moonshot Kimi K2.6). |
+| `pi-glm-5.2` | pi (openrouter) | `z-ai/glm-5.2` | `z-ai/glm-5.2` | `z-ai/glm-5.2` | `z-ai/glm-5.2` | OpenRouter Z.AI GLM lane. |
 | `claude-sdk-opus-no-subagents` | claude-sdk | `claude-opus-4-7` | `claude-sonnet-4-6` | `claude-opus-4-7` | `claude-opus-4-7` | `disableSubagents: true` on every tier; `Task` tool removed. |
 | `claude-sdk-opus-xhigh-review` | claude-sdk | `claude-opus-4-7` | `claude-sonnet-4-6` | `claude-opus-4-7` | `claude-opus-4-7` | review + evaluation tiers run at `xhigh` effort. |
 | `claude-sdk-opus-xhigh-plan-review` | claude-sdk | `claude-opus-4-7` | `claude-sonnet-4-6` | `claude-opus-4-7` | `claude-opus-4-7` | planning + review tiers run at `xhigh` effort. |
@@ -29,6 +30,7 @@ Each pair holds all but one variable constant so the comparison isolates that va
 | Harness (Claude SDK vs Pi) | `--profile claude-sdk-opus,pi-opus` |
 | Model family (Opus vs GPT) | `--profile pi-opus,pi-gpt` |
 | Model family (Opus vs Kimi vs GPT) | `--profile pi-opus,pi-gpt,pi-kimi-k-2-6` |
+| Model family (Opus vs GPT vs Kimi vs GLM) | `--profile pi-opus,pi-gpt,pi-kimi-k-2-6,pi-glm-5.2` |
 | Subagent contribution | `--profile claude-sdk-opus,claude-sdk-opus-no-subagents` |
 | Review/eval effort tier | `--profile claude-sdk-opus,claude-sdk-opus-xhigh-review` |
 | Plan/review effort tier | `--profile claude-sdk-opus,claude-sdk-opus-xhigh-plan-review` |
