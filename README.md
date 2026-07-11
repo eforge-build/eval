@@ -126,7 +126,7 @@ Create the fixture under `fixtures/my-fixture/` with source code and the PRD fil
 
 Fixture PRDs intentionally preserve real-world/nested Requirements-style inputs rather than being rewritten into canonical `## Acceptance Criteria` fixtures. That makes the suite useful for testing eforge's tolerance for brittle or non-canonical PRD shapes.
 
-Expectation checks are recorded on `result.json` under `expectations.checks`. The `skip` check is a **gating** expectation: a mismatch fails the scenario. Scenarios that declare non-empty `validate` steps implicitly expect `skip: false`; the synthesized check is tagged `implicit: true` on `result.json` so you can tell it apart from an explicit `expect.skip`. Historical `errand`/`excursion`/`expedition` labels remain in some scenario IDs as archetype names only; current eforge does not emit a stable mode-selection event for the harness to assert.
+Expectation checks are recorded on `result.json` under `expectations.checks`. Supported planning expectations include `planCount`, `testAuthoringOwnerCount`, and `reviewDepth` (`light`, `standard`, or `heavy`), along with build-stage and skip checks. The `skip` check is a **gating** expectation: a mismatch fails the scenario. Scenarios that declare non-empty `validate` steps implicitly expect `skip: false`; the synthesized check is tagged `implicit: true` on `result.json` so you can tell it apart from an explicit `expect.skip`. Historical `errand`/`excursion`/`expedition` labels remain in some scenario IDs as archetype names only; current eforge does not emit a stable mode-selection event for the harness to assert.
 
 ## Adding profiles
 

@@ -177,6 +177,9 @@ export interface ScenarioMeta {
     mode?: string;
     buildStagesContain?: string[];
     buildStagesExclude?: string[];
+    planCount?: number;
+    testAuthoringOwnerCount?: number;
+    reviewDepth?: 'light' | 'standard' | 'heavy';
     skip?: boolean;
   };
 }

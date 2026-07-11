@@ -15,6 +15,9 @@ export interface ExpectConfig {
   mode?: string;
   buildStagesContain?: string[];
   buildStagesExclude?: string[];
+  planCount?: number;
+  testAuthoringOwnerCount?: number;
+  reviewDepth?: 'light' | 'standard' | 'heavy';
   skip?: boolean;
 }
 
@@ -39,12 +42,20 @@ interface PipelineEvent {
   defaultBuild: Array<string | string[]>;
 }
 
+interface PlanningCompleteEvent {
+  plans: Array<{ id: string }>;
+  planConfigs: Array<{
+    id: string;
+    review: { strategy: 'single' | 'auto' | 'parallel' };
+    testOwnership?: 'builder' | 'test-writer' | 'existing-only';
+  }>;
+}
+
 /**
  * Read planning:pipeline event from monitor DB for the given run IDs.
  */
-function readPipelineEvent(dbPath: string, runIds: string[]): PipelineEvent | undefined {
-  if (runIds.length === 0) return undefined;
-  if (!existsSync(dbPath)) return undefined;
+function readPlanningEvent<T>(dbPath: string, runIds: string[], eventType: string): T | undefined {
+  if (runIds.length === 0 || !existsSync(dbPath)) return undefined;
 
   let db: DatabaseSync;
   try {
@@ -60,15 +71,11 @@ function readPipelineEvent(dbPath: string, runIds: string[]): PipelineEvent | un
     if (!tableCheck) return undefined;
 
     const placeholders = runIds.map(() => '?').join(', ');
-    const runFilter = `AND run_id IN (${placeholders})`;
-
     const stmt = db.prepare(
-      `SELECT data FROM events WHERE type = 'planning:pipeline' ${runFilter} LIMIT 1`,
+      `SELECT data FROM events WHERE type = ? AND run_id IN (${placeholders}) ORDER BY rowid DESC LIMIT 1`,
     );
-    const row = stmt.get(...runIds) as unknown as { data: string } | undefined;
-    if (!row) return undefined;
-
-    return JSON.parse(row.data) as PipelineEvent;
+    const row = stmt.get(eventType, ...runIds) as unknown as { data: string } | undefined;
+    return row ? JSON.parse(row.data) as T : undefined;
   } catch {
     return undefined;
   } finally {
@@ -127,6 +134,20 @@ function flattenBuildStages(defaultBuild: Array<string | string[]>): string[] {
   return stages;
 }
 
+function reviewDepthForStrategy(strategy: PlanningCompleteEvent['planConfigs'][number]['review']['strategy']): 'light' | 'standard' | 'heavy' {
+  if (strategy === 'parallel') return 'heavy';
+  if (strategy === 'auto') return 'standard';
+  return 'light';
+}
+
+function deepestReviewDepth(event: PlanningCompleteEvent | undefined): 'light' | 'standard' | 'heavy' | undefined {
+  if (!event || event.planConfigs.length === 0) return undefined;
+  const rank = { light: 0, standard: 1, heavy: 2 } as const;
+  return event.planConfigs
+    .map((config) => reviewDepthForStrategy(config.review.strategy))
+    .reduce((deepest, depth) => rank[depth] > rank[deepest] ? depth : deepest, 'light');
+}
+
 /**
  * Check scenario expectations and write results into result.json.
  * Returns the expectations result.
@@ -143,7 +164,8 @@ export function checkExpectations(opts: CheckExpectOpts): ExpectationsResult {
 
   const { runIds } = resolveRunIds(monitorDbPath, workspace);
   const checks: ExpectationCheck[] = [];
-  const pipeline = readPipelineEvent(monitorDbPath, runIds);
+  const pipeline = readPlanningEvent<PipelineEvent>(monitorDbPath, runIds, 'planning:pipeline');
+  const planningComplete = readPlanningEvent<PlanningCompleteEvent>(monitorDbPath, runIds, 'planning:complete');
 
   // Check historical mode only when the event still exposes a mode/scope field.
   if (expectConfig.mode !== undefined && pipeline?.scope !== undefined) {
@@ -179,6 +201,37 @@ export function checkExpectations(opts: CheckExpectOpts): ExpectationsResult {
       passed: found.length === 0,
       expected: expectConfig.buildStagesExclude,
       actual: found.length > 0 ? found : [],
+    });
+  }
+
+  if (expectConfig.planCount !== undefined) {
+    const actual = planningComplete?.plans.length;
+    checks.push({
+      check: 'planCount',
+      passed: actual === expectConfig.planCount,
+      expected: expectConfig.planCount,
+      actual,
+    });
+  }
+
+  if (expectConfig.testAuthoringOwnerCount !== undefined) {
+    const actual = planningComplete?.planConfigs.filter((config) =>
+      config.testOwnership === 'builder' || config.testOwnership === 'test-writer').length;
+    checks.push({
+      check: 'testAuthoringOwnerCount',
+      passed: actual === expectConfig.testAuthoringOwnerCount,
+      expected: expectConfig.testAuthoringOwnerCount,
+      actual,
+    });
+  }
+
+  if (expectConfig.reviewDepth !== undefined) {
+    const actual = deepestReviewDepth(planningComplete);
+    checks.push({
+      check: 'reviewDepth',
+      passed: actual === expectConfig.reviewDepth,
+      expected: expectConfig.reviewDepth,
+      actual,
     });
   }
 

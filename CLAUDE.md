@@ -76,6 +76,9 @@ Current fixtures: `todo-api`, `workspace-api`, `notes-api`.
 Scenarios can define `expect` in `scenarios.yaml` to assert behavioral properties:
 - `mode` — expected orchestration mode (errand, excursion, expedition)
 - `buildStagesContain` / `buildStagesExclude` — assert presence/absence of build stages
+- `planCount` — assert the number of compiled plans
+- `testAuthoringOwnerCount` — assert how many plans assign new-test authorship to builder or test-writer
+- `reviewDepth` — assert the deepest compiled review profile (`light`, `standard`, or `heavy`)
 - `skip` — expect eforge to skip (PRD already satisfied)
 
 ### Results

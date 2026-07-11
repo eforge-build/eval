@@ -16,15 +16,21 @@
 scenarios:
   # --- todo-api ---
 
+  # Stable no-repository-path planning eval. This small implementation-and-test
+  # change must remain one cohesive plan with one test-authoring owner.
   - id: todo-api-errand-health-check
     fixture: todo-api
     prd: docs/add-health-check.md
-    description: "Add GET /health endpoint to Express API"
+    description: "No-literal-file-path health endpoint: one cohesive plan and one test author"
     validate:
       - pnpm install
       - pnpm type-check
       - pnpm test
       - test -f .eforge/hook-events.log && grep -q EFORGE_CWD .eforge/hook-events.log
+    expect:
+      planCount: 1
+      testAuthoringOwnerCount: 1
+      reviewDepth: standard
 
   - id: todo-api-excursion-jwt-auth
     fixture: todo-api
